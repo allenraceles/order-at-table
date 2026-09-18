@@ -28,7 +28,7 @@ class OrderLineInput(BaseModel):
 
 class OrderInput(BaseModel):
     table_number: int = Field(ge=1)
-    table_service_id: uuid.UUID
+    table_service_id: uuid.UUID | None = None
     payment_method: Literal["counter"]
     items: list[OrderLineInput] = Field(min_length=1, max_length=20)
 
@@ -185,8 +185,17 @@ def create_order(payload: OrderInput):
         ).fetchone()
         if table is None:
             raise HTTPException(status_code=404, detail="Unknown table number")
-        if table["current_service_id"] != payload.table_service_id:
-            raise HTTPException(status_code=409, detail="This table service has ended. Ask staff to start a new service.")
+        if table["current_service_id"] is None and payload.table_service_id is None:
+            service_id = uuid.uuid4()
+            connection.execute(
+                """UPDATE order_at_table.dining_tables
+                   SET current_service_id = %s, service_started_at = now() WHERE number = %s""",
+                (service_id, payload.table_number),
+            )
+        elif table["current_service_id"] == payload.table_service_id:
+            service_id = table["current_service_id"]
+        else:
+            raise HTTPException(status_code=409, detail="Table service changed. Please try your order again.")
         lines = []
         for line in payload.items:
             item = connection.execute(
@@ -211,7 +220,7 @@ def create_order(payload: OrderInput):
                    (number, table_number, table_service_id, payment_method, status, total)
                    VALUES (%s, %s, %s, %s, 'awaiting_payment', %s)
                    ON CONFLICT (number) DO NOTHING RETURNING id""",
-                (number, payload.table_number, payload.table_service_id, payload.payment_method, total),
+                (number, payload.table_number, service_id, payload.payment_method, total),
             ).fetchone()
             if inserted is not None:
                 break
