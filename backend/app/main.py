@@ -351,15 +351,18 @@ async def paymongo_webhook(request: Request):
     try:
         event = json.loads(body)
         data = event["data"]
-        live = data["livemode"]
-        session = data["data"]
+        # PayMongo's event resource wraps checkout details in data.attributes.
+        # The hosted checkout documentation also shows an unwrapped payload.
+        details = data["attributes"] if data.get("type") == "event" else data
+        live = details["livemode"]
+        session = details["data"]
         if not isinstance(live, bool):
             raise ValueError()
     except (ValueError, KeyError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid PayMongo event") from None
     if live != expected_live:
         raise HTTPException(status_code=400, detail="PayMongo mode mismatch")
-    if data.get("type") != "checkout_session.payment.paid":
+    if details.get("type") != "checkout_session.payment.paid":
         return {"ok": True}
     attributes = session.get("attributes", {})
     payments = attributes.get("payments", [])

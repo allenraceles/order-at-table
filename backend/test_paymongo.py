@@ -6,9 +6,11 @@ import io
 import json
 import time
 import unittest
+import asyncio
+from contextlib import contextmanager
 from unittest.mock import patch
 
-from backend.app.main import create_paymongo_session, verify_paymongo_signature
+from backend.app.main import create_paymongo_session, paymongo_webhook, verify_paymongo_signature
 
 
 class PayMongoTests(unittest.TestCase):
@@ -45,6 +47,46 @@ class PayMongoTests(unittest.TestCase):
         self.assertFalse(verify_paymongo_signature(body, header, "webhook_secret", True))
         stale = str(int(time.time()) - 3600)
         self.assertFalse(verify_paymongo_signature(body, f"t={stale},te={signature},li=", "webhook_secret", False))
+
+    def test_paid_checkout_accepts_paymongo_event_resource(self):
+        session = {"id": "cs_test", "attributes": {"reference_number": "1234", "payments": [
+            {"attributes": {"status": "paid", "currency": "PHP", "amount": 29900}}
+        ]}}
+        event = {"data": {"id": "evt_test", "type": "event", "attributes": {
+            "type": "checkout_session.payment.paid", "livemode": False, "data": session,
+        }}}
+        body = json.dumps(event).encode()
+        timestamp = str(int(time.time()))
+        signature = hmac.new(b"webhook_secret", timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
+
+        class RequestStub:
+            headers = {"Paymongo-Signature": f"t={timestamp},te={signature}"}
+
+            async def body(self):
+                return body
+
+        class ConnectionStub:
+            def execute(self, query, params):
+                if query.lstrip().startswith("SELECT"):
+                    self.params = params
+                    return self
+                self.updated = True
+
+            def fetchone(self):
+                return {"total": 299, "status": "awaiting_payment"}
+
+        connection = ConnectionStub()
+
+        @contextmanager
+        def fake_database():
+            yield connection
+
+        with patch.dict("os.environ", {"PAYMONGO_SECRET_KEY": "sk_test_example", "PAYMONGO_WEBHOOK_SECRET": "webhook_secret"}):
+            with patch("backend.app.main.database", fake_database):
+                result = asyncio.run(paymongo_webhook(RequestStub()))
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(connection.params, ("1234", "cs_test"))
+        self.assertTrue(connection.updated)
 
 
 if __name__ == "__main__":
