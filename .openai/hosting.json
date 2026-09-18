@@ -1,6 +1,6 @@
 {
   "project_id": "appgprj_6aa929114b6c8191b0d01b80c3517e31",
   "static": {
-    "directory": "dist"
+    "directory": "apps/order-at-table/dist"
   }
 }

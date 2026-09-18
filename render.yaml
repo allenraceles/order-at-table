@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: mesa-order-api
+    runtime: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: ORDER_STAFF_KEY
+        sync: false
+      - key: ORDER_ALLOWED_ORIGINS
+        value: https://mesa-customer-ordering.raseresu.chatgpt.site,https://mesa-foh-dashboard.raseresu.chatgpt.site,https://mesa-kitchen-view.raseresu.chatgpt.site

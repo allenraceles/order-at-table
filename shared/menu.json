@@ -1,0 +1,140 @@
+{
+  "categories": [
+    "All",
+    "Popular now",
+    "Small plates",
+    "Mains",
+    "Drinks & coffee"
+  ],
+  "menu": [
+    {
+      "category": "Popular now",
+      "items": [
+        {
+          "id": "shakshuka",
+          "name": "Harissa shakshuka",
+          "desc": "Baked eggs, tomato, whipped feta, sourdough.",
+          "price": 420,
+          "image": "https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg",
+          "tag": "Best seller",
+          "options": [
+            "Classic",
+            "Add avocado +₱70"
+          ]
+        },
+        {
+          "id": "latte",
+          "name": "Coconut pandan latte",
+          "desc": "Espresso, toasted coconut, pandan cream.",
+          "price": 190,
+          "image": "https://gcs.tripi.vn/public-tripi/tripi-feed/img/473726EUK/the-vagabond-patisserie-amp-cafe-1139857.jpg",
+          "tag": "House pick",
+          "options": [
+            "Hot",
+            "Iced +₱20"
+          ]
+        },
+        {
+          "id": "grain",
+          "name": "Green market grain bowl",
+          "desc": "Quinoa, roasted squash, greens, calamansi dressing.",
+          "price": 360,
+          "image": "https://www.midtown-grill.de/resourcefiles/chef-thumb-image/midtown-grill-food.jpg?version=8022022074529",
+          "options": [
+            "Add chicken +₱90",
+            "Add tofu +₱60"
+          ]
+        },
+        {
+          "id": "croissant",
+          "name": "Butter croissant",
+          "desc": "Baked fresh this morning. Served warm.",
+          "price": 145,
+          "image": "https://gcs.tripi.vn/public-tripi/tripi-feed/img/473726EUK/the-vagabond-patisserie-amp-cafe-1139857.jpg",
+          "options": [
+            "Warm it up"
+          ]
+        }
+      ]
+    },
+    {
+      "category": "Small plates",
+      "items": [
+        {
+          "id": "toast",
+          "name": "Tomato confit toast",
+          "desc": "Sourdough, whipped ricotta, basil oil.",
+          "price": 240,
+          "image": "https://www.midtown-grill.de/resourcefiles/chef-thumb-image/midtown-grill-food.jpg?version=8022022074529",
+          "options": [
+            "Add poached egg +₱55"
+          ]
+        },
+        {
+          "id": "wings",
+          "name": "Calamansi pepper wings",
+          "desc": "Crisp chicken, house glaze, pickled chili.",
+          "price": 320,
+          "image": "https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg",
+          "options": [
+            "Extra sauce"
+          ]
+        }
+      ]
+    },
+    {
+      "category": "Mains",
+      "items": [
+        {
+          "id": "chicken",
+          "name": "Charred chicken plate",
+          "desc": "Chicken thigh, turmeric rice, cucumber relish.",
+          "price": 445,
+          "image": "https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg",
+          "tag": "New",
+          "options": [
+            "Add egg +₱45",
+            "Extra rice +₱35"
+          ]
+        },
+        {
+          "id": "pasta",
+          "name": "Miso butter noodles",
+          "desc": "Silky noodles, mushrooms, parmesan, spring onion.",
+          "price": 390,
+          "image": "https://www.midtown-grill.de/resourcefiles/chef-thumb-image/midtown-grill-food.jpg?version=8022022074529",
+          "options": [
+            "Add chicken +₱90",
+            "Add prawns +₱120"
+          ]
+        }
+      ]
+    },
+    {
+      "category": "Drinks & coffee",
+      "items": [
+        {
+          "id": "matcha",
+          "name": "Cloud matcha",
+          "desc": "Ceremonial matcha, oat milk, vanilla sea salt.",
+          "price": 210,
+          "image": "https://gcs.tripi.vn/public-tripi/tripi-feed/img/473726EUK/the-vagabond-patisserie-amp-cafe-1139857.jpg",
+          "options": [
+            "Hot",
+            "Iced +₱20"
+          ]
+        },
+        {
+          "id": "spritz",
+          "name": "Calamansi spritz",
+          "desc": "Calamansi, basil, soda, a little sunshine.",
+          "price": 180,
+          "image": "https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg",
+          "options": [
+            "Less sweet"
+          ]
+        }
+      ]
+    }
+  ]
+}
