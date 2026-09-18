@@ -6,7 +6,7 @@ import { loadMenu, type Item, type MenuData } from '@/lib/menu'
 
 type CartLine = { key: string; item: Item; option: string | null; quantity: number; unitPrice: number }
 type OrderStatus = 'awaiting_payment' | 'new' | 'preparing' | 'ready' | 'complete' | 'cancelled'
-type Order = { number: string; table_number: number; table_service_id: string | null; payment_method: 'counter'; status: OrderStatus; total: number; items: { name: string; option: string | null; quantity: number; unit_price: number }[] }
+type Order = { number: string; table_number: number; table_service_id: string | null; payment_method: 'counter' | 'paymongo'; status: OrderStatus; total: number; items: { name: string; option: string | null; quantity: number; unit_price: number }[] }
 type TableService = { number: number; seats: number; current_service_id: string | null; service_started_at: string | null }
 type Panel = 'item' | 'cart' | 'checkout' | 'success' | 'status' | null
 
@@ -33,9 +33,7 @@ function useDefaultImage(event: SyntheticEvent<HTMLImageElement>) {
   image.alt = 'Harissa shakshuka'
 }
 const paymentMethods = [
-  { id: 'gcash', name: 'GCash', copy: 'Coming soon', logo: 'G', className: 'gcash' },
-  { id: 'maya', name: 'Maya', copy: 'Coming soon', logo: 'M', className: 'maya' },
-  { id: 'qrph', name: 'QR Ph', copy: 'Coming soon', logo: 'QR', className: 'qr' },
+  { id: 'paymongo', name: 'Pay online with PayMongo', copy: 'GCash or QR Ph', logo: 'QR', className: 'qr' },
   { id: 'counter', name: 'Pay at the counter', copy: 'For discounts or special billing', logo: '₱', className: 'cash' },
 ] as const
 
@@ -51,6 +49,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export default function App() {
   const [menuData, setMenuData] = useState<MenuData | null>(null)
   const [menuError, setMenuError] = useState('')
+  const [apiReady, setApiReady] = useState<boolean | null>(null)
   const [category, setCategory] = useState('All')
   const [query, setQuery] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
@@ -62,21 +61,23 @@ export default function App() {
   const [tableService, setTableService] = useState<TableService | null>(null)
   const [tableError, setTableError] = useState('')
   const serviceIdRef = useRef<string | null | undefined>(undefined)
-  const serviceVersionRef = useRef(0)
   const [submitting, setSubmitting] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<'counter' | 'paymongo'>('counter')
+  const [paymongoEnabled, setPaymongoEnabled] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
 
   useEffect(() => {
     loadMenu().then(setMenuData).catch(cause => setMenuError(cause instanceof Error ? cause.message : 'Could not load menu'))
+    api<{ ok: boolean }>('/api/health').then(() => setApiReady(true)).catch(() => setApiReady(false))
+    api<{ paymongo_enabled: boolean }>('/api/payments/config').then(config => { setPaymongoEnabled(config.paymongo_enabled); if (config.paymongo_enabled) setPaymentMethod('paymongo') }).catch(() => {})
     sessionStorage.removeItem('mesa-order-number')
     let active = true
     let firstLoad = true
     const refreshTable = async () => {
-      const requestedVersion = serviceVersionRef.current
       try {
         const current = await api<TableService>(`/api/tables/${tableNumber}/service`)
-        if (!active || requestedVersion !== serviceVersionRef.current) return
+        if (!active) return
         if (firstLoad) {
           firstLoad = false
           const saved = sessionStorage.getItem(orderStorageKey)
@@ -85,7 +86,7 @@ export default function App() {
               const remembered = JSON.parse(saved) as { serviceId: string; orderNumber: string }
               if (remembered.serviceId === current.current_service_id) {
                 api<Order>(`/api/orders/${encodeURIComponent(remembered.orderNumber)}`)
-                  .then(found => { if (active && found.table_service_id === serviceIdRef.current) setOrder(found) })
+                  .then(found => { if (active && found.table_service_id === serviceIdRef.current) { setOrder(found); if (new URLSearchParams(window.location.search).get('payment') === 'return') setPanel('status') } })
                   .catch(() => sessionStorage.removeItem(orderStorageKey))
               } else sessionStorage.removeItem(orderStorageKey)
             } catch { sessionStorage.removeItem(orderStorageKey) }
@@ -100,7 +101,7 @@ export default function App() {
         setTableService(current)
         setTableError('')
       } catch (cause) {
-        if (active && requestedVersion === serviceVersionRef.current) setTableError(cause instanceof Error ? cause.message : 'Could not load this table')
+        if (active) setTableError(cause instanceof Error ? cause.message : 'Could not load this table')
       }
     }
     refreshTable()
@@ -129,7 +130,9 @@ export default function App() {
   ) })).filter(section => section.items.length), [menuData, category, query])
   const count = cart.reduce((sum, line) => sum + line.quantity, 0)
   const total = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
-  const orderMessage = order ? orderMessages[order.status] : null
+  const orderMessage = order ? (order.status === 'awaiting_payment' && order.payment_method === 'paymongo'
+    ? { title: 'Waiting for online payment', detail: 'Complete PayMongo checkout. Payment confirmation may take a moment.' }
+    : orderMessages[order.status]) : null
   const paymentComplete = !!order && !['awaiting_payment', 'cancelled'].includes(order.status)
   const preparationStarted = !!order && ['preparing', 'ready', 'complete'].includes(order.status)
   const readyToServe = !!order && ['ready', 'complete'].includes(order.status)
@@ -162,23 +165,27 @@ export default function App() {
     setPanel('cart')
   }
 
+  async function openPaymongoCheckout(placed: Order) {
+    const checkout = await api<{ checkout_url: string }>(`/api/orders/${encodeURIComponent(placed.number)}/checkout`, {
+      method: 'POST', body: JSON.stringify({ table_service_id: placed.table_service_id }),
+    })
+    window.location.assign(checkout.checkout_url)
+  }
+
   async function placeOrder() {
+    if (!tableService?.current_service_id) { setError('Ask staff to mark this table in service first.'); return }
     setSubmitting(true)
     setError('')
     try {
-      const currentTable = tableService || await api<TableService>(`/api/tables/${tableNumber}/service`)
       const placed = await api<Order>('/api/orders', {
         method: 'POST',
-        body: JSON.stringify({ table_number: tableNumber, table_service_id: currentTable.current_service_id, payment_method: 'counter', items: cart.map(line => ({ item_id: line.item.id, option: line.option, quantity: line.quantity })) }),
+        body: JSON.stringify({ table_number: tableNumber, table_service_id: tableService.current_service_id, payment_method: paymentMethod, items: cart.map(line => ({ item_id: line.item.id, option: line.option, quantity: line.quantity })) }),
       })
       setOrder(placed)
-      serviceVersionRef.current += 1
-      serviceIdRef.current = placed.table_service_id
-      setTableService({ ...currentTable, current_service_id: placed.table_service_id })
-      setTableError('')
-      sessionStorage.setItem(orderStorageKey, JSON.stringify({ serviceId: placed.table_service_id, orderNumber: placed.number }))
+      sessionStorage.setItem(orderStorageKey, JSON.stringify({ serviceId: tableService.current_service_id, orderNumber: placed.number }))
       setCart([])
       setPanel('success')
+      if (placed.payment_method === 'paymongo') await openPaymongoCheckout(placed)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not place your order. Please try again.')
     } finally { setSubmitting(false) }
@@ -194,7 +201,8 @@ export default function App() {
     <main className="page">
       {order && <div className="order-status-card"><button type="button" onClick={() => setPanel('status')}><div className="status-top"><strong>Order #{order.number}: {orderMessage?.title}</strong><span>View status →</span></div><div className="status-card-copy">{orderMessage?.detail}</div></button></div>}
       <section className="context-row" aria-labelledby="page-title"><div><div className="eyebrow">Dine-in menu</div><h1 id="page-title">Take your time.<br /><em>We’ll bring it.</em></h1><p className="context-copy">Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.</p></div><div className="open-badge"><span className="open-dot" aria-hidden="true" /> Open until 10:00 PM</div></section>
-      <div className="notice" role="status"><div className="notice-icon" aria-hidden="true">✦</div><div><strong>Table {tableNumber}</strong><span>{tableError || (tableService ? 'Ready to order. We’ll bring it to this table.' : 'Checking your table…')}</span></div></div>
+      <div className="notice" role="status"><div className="notice-icon" aria-hidden="true">✦</div><div><strong>Table {tableNumber}</strong><span>{tableError || (tableService?.current_service_id ? 'Ready to order. We’ll bring it to this table.' : 'Ask our team to mark this table in service before ordering.')}</span></div></div>
+      {/* {apiReady === false && <div className="api-notice" role="status">Menu preview is available. Start the FastAPI service to place an order.</div>} */}
 
       <div className="workspace"><section className="menu-column" aria-label="Restaurant menu">
         <div className="menu-toolbar"><div className="search-wrap"><Search size={18} aria-hidden="true" /><input type="search" placeholder="Search the menu" aria-label="Search the menu" value={query} onChange={event => setQuery(event.target.value)} /></div><Button variant="outline" className="filter-button" onClick={() => setToast('Dietary filters are coming next')}>Dietary</Button></div>
@@ -208,11 +216,11 @@ export default function App() {
     {(count > 0 || order) && <div className="mobile-cart-bar"><button className="mobile-cart-button" type="button" onClick={openOrder}><span>{order ? `Order #${order.number}` : `${count} ${count === 1 ? 'item' : 'items'} in your order`}</span><span>{order ? 'View status →' : `${money(total)} →`}</span></button></div>}
 
     <Dialog open={panel !== null} onOpenChange={open => { if (!open && !submitting) setPanel(null) }}><DialogContent aria-describedby="dialog-description">
-        <div className="modal-header"><div><DialogTitle>{panel === 'item' ? selectedItem?.name : panel === 'cart' ? 'Review your order' : panel === 'checkout' ? 'Choose how to pay' : panel === 'success' ? 'Order reserved' : `Order #${order?.number}`}</DialogTitle><DialogDescription id="dialog-description">{panel === 'item' ? selectedItem?.tag || 'Made to order' : panel === 'cart' ? `Table ${tableNumber} · Prices include VAT` : panel === 'checkout' ? 'Counter payment is available now' : panel === 'success' ? 'Payment is completed at the counter' : orderMessage?.title || 'Order status'}</DialogDescription></div><button className="modal-close" type="button" onClick={() => setPanel(null)} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-header"><div><DialogTitle>{panel === 'item' ? selectedItem?.name : panel === 'cart' ? 'Review your order' : panel === 'checkout' ? 'Choose how to pay' : panel === 'success' ? (order?.payment_method === 'paymongo' ? 'Complete payment' : 'Order reserved') : `Order #${order?.number}`}</DialogTitle><DialogDescription id="dialog-description">{panel === 'item' ? selectedItem?.tag || 'Made to order' : panel === 'cart' ? `Table ${tableNumber} · Prices include VAT` : panel === 'checkout' ? 'Choose online or counter payment' : panel === 'success' ? (order?.payment_method === 'paymongo' ? 'Use PayMongo to pay securely' : 'Payment is completed at the counter') : orderMessage?.title || 'Order status'}</DialogDescription></div><button className="modal-close" type="button" onClick={() => setPanel(null)} aria-label="Close"><X size={18} /></button></div>
       {panel === 'item' && selectedItem && <div className="modal-body"><div className="item-modal-image"><img src={selectedItem.image} alt={selectedItem.name} onError={useDefaultImage} /></div><div className="item-copy-row"><h3>{selectedItem.name}</h3><strong>{money(selectedItem.price)}</strong></div><p className="item-description">{selectedItem.desc} Ask our team if you need help with ingredients or allergens.</p>{!!selectedItem.options?.length && <div className="option-group"><h4>Choose your preparation <span>Optional</span></h4><div className="option-list">{selectedItem.options.map(option => <button key={option} type="button" className={`option-pill ${selectedOption === option ? 'selected' : ''}`} onClick={() => setSelectedOption(option)} aria-pressed={selectedOption === option}>{option}</button>)}</div></div>}<div className="quantity-row"><span>Quantity</span><div className="stepper"><button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} aria-label="Decrease quantity">−</button><strong>{quantity}</strong><button type="button" onClick={() => setQuantity(Math.min(10, quantity + 1))} aria-label="Increase quantity">＋</button></div></div><Button className="modal-primary" onClick={addItem}>Add to order <span>· {money((selectedItem.price + optionPrice(selectedOption)) * quantity)}</span></Button></div>}
       {panel === 'cart' && <div className="modal-body"><div className="cart-modal-list">{cart.map(line => <div className="cart-modal-line" key={line.key}><div><strong>{line.quantity} × {line.item.name}</strong><small>{line.option || 'Standard preparation'}</small></div><b>{money(line.unitPrice * line.quantity)}</b></div>)}</div><div className="summary-box" style={{ marginTop: 18 }}><div className="total-line"><span>Subtotal</span><strong>{money(total)}</strong></div><div className="total-line"><span>VAT</span><span>Included</span></div><div className="total-line grand"><span>Total</span><strong>{money(total)}</strong></div></div><div className="mini-note">Need a senior citizen/PWD discount, service-charge adjustment, or special billing request? Pay at the counter so our team can help.</div><Button className="modal-primary" onClick={() => setPanel('checkout')}>Continue to payment <span>→</span></Button></div>}
-        {panel === 'checkout' && <div className="modal-body"><div className="summary-box"><div className="total-line"><span>Table {tableNumber}</span><strong>{count} {count === 1 ? 'item' : 'items'}</strong></div><div className="total-line grand"><span>Total to pay</span><strong>{money(total)}</strong></div></div><div className="payment-heading">Payment method</div><div className="payment-options">{paymentMethods.map(method => <div key={method.id} className={`payment-option ${method.id === 'counter' ? 'selected' : 'unavailable'}`} aria-disabled={method.id !== 'counter'}><span className={`payment-logo ${method.className}`}>{method.logo}</span><span><strong>{method.name}</strong><small>{method.copy}</small></span><span className="radio" aria-hidden="true" /></div>)}</div><div className="counter-callout"><strong>How counter payment works</strong>Submit your order, then show the order number at the counter. Our team will verify any discount or billing request, collect payment, and send the order to the kitchen.</div>{error && <p className="submit-error" role="alert">{error}</p>}<Button className="modal-primary" disabled={submitting} onClick={placeOrder}>{submitting ? 'Placing order…' : 'Place counter order'} <span>→</span></Button></div>}
-      {(panel === 'success' || panel === 'status') && order && <div className="modal-body"><div className="success-panel"><div className="success-mark">{paymentComplete ? '✓' : '₱'}</div><h3>{orderMessage?.title}</h3><p>{orderMessage?.detail}</p><div className="order-code">ORDER #{order.number}</div><div className="timeline"><div className="timeline-step active"><div className="timeline-dot">✓</div><div><strong>Order received</strong><span>Table {order.table_number} · {money(order.total)}</span></div></div><div className={`timeline-step ${paymentComplete ? 'active' : ''}`}><div className="timeline-dot">{paymentComplete ? '✓' : '2'}</div><div><strong>Counter payment</strong><span>{paymentComplete ? 'Confirmed' : 'Show your order number to our team'}</span></div></div><div className={`timeline-step ${preparationStarted ? 'active' : ''}`}><div className="timeline-dot">{preparationStarted ? '✓' : '3'}</div><div><strong>Preparing</strong><span>{preparationStarted ? 'Kitchen is working on your order' : 'Starts after payment confirmation'}</span></div></div><div className={`timeline-step ${readyToServe ? 'active' : ''}`}><div className="timeline-dot">{readyToServe ? '✓' : '4'}</div><div><strong>Ready to serve</strong><span>{readyToServe ? 'Our team will bring it to your table' : 'Waiting for the kitchen'}</span></div></div></div><Button className="modal-primary" onClick={() => setPanel(null)}>Done</Button></div></div>}
+        {panel === 'checkout' && <div className="modal-body"><div className="summary-box"><div className="total-line"><span>Table {tableNumber}</span><strong>{count} {count === 1 ? 'item' : 'items'}</strong></div><div className="total-line grand"><span>Total to pay</span><strong>{money(total)}</strong></div></div><div className="payment-heading">Payment method</div><div className="payment-options">{paymentMethods.filter(method => method.id === 'counter' || paymongoEnabled).map(method => <button type="button" key={method.id} className={`payment-option ${method.id === paymentMethod ? 'selected' : ''}`} onClick={() => setPaymentMethod(method.id)} aria-pressed={method.id === paymentMethod}><span className={`payment-logo ${method.className}`}>{method.logo}</span><span><strong>{method.name}</strong><small>{method.copy}</small></span><span className="radio" aria-hidden="true" /></button>)}</div><div className="counter-callout"><strong>{paymentMethod === 'paymongo' ? 'How online payment works' : 'How counter payment works'}</strong>{paymentMethod === 'paymongo' ? 'After placing your order, you’ll continue to PayMongo. The kitchen receives it when PayMongo confirms payment.' : 'Submit your order, then show the order number at the counter. Our team will verify any discount or billing request, collect payment, and send the order to the kitchen.'}</div>{error && <p className="submit-error" role="alert">{error}</p>}<Button className="modal-primary" disabled={submitting || apiReady !== true || !tableService?.current_service_id} onClick={placeOrder}>{submitting ? 'Placing order…' : paymentMethod === 'paymongo' ? 'Continue to PayMongo' : 'Place counter order'} <span>→</span></Button>{apiReady === false && <p className="submit-error">Ordering requires FastAPI and a Supabase connection.</p>}</div>}
+      {(panel === 'success' || panel === 'status') && order && <div className="modal-body"><div className="success-panel"><div className="success-mark">{paymentComplete ? '✓' : '₱'}</div><h3>{orderMessage?.title}</h3><p>{orderMessage?.detail}</p><div className="order-code">ORDER #{order.number}</div><div className="timeline"><div className="timeline-step active"><div className="timeline-dot">✓</div><div><strong>Order received</strong><span>Table {order.table_number} · {money(order.total)}</span></div></div><div className={`timeline-step ${paymentComplete ? 'active' : ''}`}><div className="timeline-dot">{paymentComplete ? '✓' : '2'}</div><div><strong>{order.payment_method === 'paymongo' ? 'Online payment' : 'Counter payment'}</strong><span>{paymentComplete ? 'Confirmed' : order.payment_method === 'paymongo' ? 'Complete PayMongo checkout' : 'Show your order number to our team'}</span></div></div><div className={`timeline-step ${preparationStarted ? 'active' : ''}`}><div className="timeline-dot">{preparationStarted ? '✓' : '3'}</div><div><strong>Preparing</strong><span>{preparationStarted ? 'Kitchen is working on your order' : 'Starts after payment confirmation'}</span></div></div><div className={`timeline-step ${readyToServe ? 'active' : ''}`}><div className="timeline-dot">{readyToServe ? '✓' : '4'}</div><div><strong>Ready to serve</strong><span>{readyToServe ? 'Our team will bring it to your table' : 'Waiting for the kitchen'}</span></div></div></div>{order.payment_method === 'paymongo' && order.status === 'awaiting_payment' && <Button className="modal-primary" disabled={submitting} onClick={async () => { setSubmitting(true); setError(''); try { await openPaymongoCheckout(order) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not open PayMongo checkout') } finally { setSubmitting(false) } }}>{submitting ? 'Opening PayMongo…' : 'Pay now with PayMongo'}</Button>}{error && <p className="submit-error" role="alert">{error}</p>}<Button className="modal-primary" onClick={() => setPanel(null)}>Done</Button></div></div>}
     </DialogContent></Dialog>
     <div className={`toast ${toast ? 'show' : ''}`} role="status" aria-live="polite">{toast}</div>
   </>

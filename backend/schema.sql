@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS order_at_table.orders (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   number text NOT NULL UNIQUE,
   table_number integer NOT NULL CHECK (table_number > 0),
-  payment_method text NOT NULL CHECK (payment_method = 'counter'),
+  payment_method text NOT NULL CHECK (payment_method IN ('counter', 'paymongo')),
   status text NOT NULL CHECK (status IN ('awaiting_payment', 'new', 'preparing', 'ready', 'complete', 'cancelled')),
   total integer NOT NULL CHECK (total >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -67,6 +67,14 @@ ALTER TABLE order_at_table.orders
   ADD COLUMN IF NOT EXISTS ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS completed_at timestamptz;
 ALTER TABLE order_at_table.orders ADD COLUMN IF NOT EXISTS table_service_id uuid;
+ALTER TABLE order_at_table.orders
+  ADD COLUMN IF NOT EXISTS paymongo_checkout_id text,
+  ADD COLUMN IF NOT EXISTS paymongo_checkout_url text;
+ALTER TABLE order_at_table.orders DROP CONSTRAINT IF EXISTS orders_payment_method_check;
+ALTER TABLE order_at_table.orders ADD CONSTRAINT orders_payment_method_check
+  CHECK (payment_method IN ('counter', 'paymongo'));
+CREATE UNIQUE INDEX IF NOT EXISTS order_at_table_orders_paymongo_checkout_id_idx
+  ON order_at_table.orders(paymongo_checkout_id) WHERE paymongo_checkout_id IS NOT NULL;
 ALTER TABLE order_at_table.orders DROP CONSTRAINT IF EXISTS orders_status_check;
 ALTER TABLE order_at_table.orders ADD CONSTRAINT orders_status_check
   CHECK (status IN ('awaiting_payment', 'new', 'preparing', 'ready', 'complete', 'cancelled'));

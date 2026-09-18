@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import os
+import base64
+import hashlib
+import hmac
+import json
 import secrets
+import time
 import uuid
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit
+from urllib.request import Request as UrlRequest, urlopen
 
 import psycopg
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -28,9 +35,13 @@ class OrderLineInput(BaseModel):
 
 class OrderInput(BaseModel):
     table_number: int = Field(ge=1)
-    table_service_id: uuid.UUID | None = None
-    payment_method: Literal["counter"]
+    table_service_id: uuid.UUID
+    payment_method: Literal["counter", "paymongo"]
     items: list[OrderLineInput] = Field(min_length=1, max_length=20)
+
+
+class CheckoutInput(BaseModel):
+    table_service_id: uuid.UUID
 
 
 class OrderStatusInput(BaseModel):
@@ -123,11 +134,72 @@ app.add_middleware(
 )
 
 
+def paymongo_secret() -> str:
+    key = os.environ.get("PAYMONGO_SECRET_KEY", "")
+    if not key.startswith(("sk_test_", "sk_live_")) or key.endswith("REPLACE_ME"):
+        raise HTTPException(status_code=503, detail="PayMongo is not configured")
+    return key
+
+
+def create_paymongo_session(number: str, table_number: int, lines: list[dict]) -> tuple[str, str]:
+    customer_url = os.environ.get("ORDER_CUSTOMER_URL", "http://localhost:5173").rstrip("/")
+    parsed = urlsplit(customer_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path:
+        raise HTTPException(status_code=503, detail="Customer return URL is not configured")
+    return_url = f"{customer_url}/?{urlencode({'table': table_number, 'payment': 'return'})}"
+    attributes = {
+        "line_items": [{"name": line["name"] + (f" ({line['option']})" if line["option"] else ""),
+                        "amount": line["unit_price"] * 100, "currency": "PHP", "quantity": line["quantity"]}
+                       for line in lines],
+        "payment_method_types": ["gcash", "qrph"],
+        "success_url": return_url,
+        "cancel_url": return_url,
+        "reference_number": number,
+        "description": f"Mesa & Co. order #{number} · table {table_number}",
+    }
+    authorization = base64.b64encode(f"{paymongo_secret()}:".encode()).decode()
+    request = UrlRequest(
+        "https://api.paymongo.com/v2/checkout_sessions",
+        data=json.dumps({"data": {"attributes": attributes}}).encode(),
+        headers={"Authorization": f"Basic {authorization}", "Content-Type": "application/json",
+                 "Idempotency-Key": f"mesa-order-{number}"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            session = json.load(response)["data"]
+        checkout_id = session["id"]
+        checkout_url = session["attributes"]["checkout_url"]
+        if not checkout_id.startswith("cs_") or urlsplit(checkout_url).hostname != "checkout.paymongo.com":
+            raise ValueError("Unexpected PayMongo checkout response")
+        return checkout_id, checkout_url
+    except (HTTPError, URLError, KeyError, ValueError, TimeoutError):
+        raise HTTPException(status_code=502, detail="Could not start PayMongo checkout. Please try again.") from None
+
+
+def verify_paymongo_signature(body: bytes, header: str, secret: str, live: bool) -> bool:
+    parts = dict(part.strip().split("=", 1) for part in header.split(",") if "=" in part)
+    timestamp = parts.get("t", "")
+    signature = parts.get("li" if live else "te", "")
+    if not timestamp.isdigit() or abs(time.time() - int(timestamp)) > 300 or not signature:
+        return False
+    digest = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(digest, signature)
+
+
 @app.get("/api/health")
 def health():
     with database() as connection:
         connection.execute("SELECT 1")
     return {"ok": True}
+
+
+@app.get("/api/payments/config")
+def payment_config():
+    key = os.environ.get("PAYMONGO_SECRET_KEY", "")
+    webhook = os.environ.get("PAYMONGO_WEBHOOK_SECRET", "")
+    return {"paymongo_enabled": key.startswith(("sk_test_", "sk_live_")) and
+            not key.endswith("REPLACE_ME") and bool(webhook) and not webhook.endswith("REPLACE_ME")}
 
 
 @app.get("/api/menu")
@@ -185,17 +257,8 @@ def create_order(payload: OrderInput):
         ).fetchone()
         if table is None:
             raise HTTPException(status_code=404, detail="Unknown table number")
-        if table["current_service_id"] is None and payload.table_service_id is None:
-            service_id = uuid.uuid4()
-            connection.execute(
-                """UPDATE order_at_table.dining_tables
-                   SET current_service_id = %s, service_started_at = now() WHERE number = %s""",
-                (service_id, payload.table_number),
-            )
-        elif table["current_service_id"] == payload.table_service_id:
-            service_id = table["current_service_id"]
-        else:
-            raise HTTPException(status_code=409, detail="Table service changed. Please try your order again.")
+        if table["current_service_id"] != payload.table_service_id:
+            raise HTTPException(status_code=409, detail="This table service has ended. Ask staff to start a new service.")
         lines = []
         for line in payload.items:
             item = connection.execute(
@@ -220,7 +283,7 @@ def create_order(payload: OrderInput):
                    (number, table_number, table_service_id, payment_method, status, total)
                    VALUES (%s, %s, %s, %s, 'awaiting_payment', %s)
                    ON CONFLICT (number) DO NOTHING RETURNING id""",
-                (number, payload.table_number, service_id, payload.payment_method, total),
+                (number, payload.table_number, payload.table_service_id, payload.payment_method, total),
             ).fetchone()
             if inserted is not None:
                 break
@@ -244,6 +307,89 @@ def get_order(number: str):
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+
+@app.post("/api/orders/{number}/checkout")
+def start_checkout(number: str, payload: CheckoutInput):
+    with database() as connection:
+        row = connection.execute(
+            """SELECT id, table_number, table_service_id, payment_method, status,
+                      paymongo_checkout_id, paymongo_checkout_url
+               FROM order_at_table.orders WHERE number = %s FOR UPDATE""",
+            (number,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if row["table_service_id"] != payload.table_service_id or row["payment_method"] != "paymongo":
+            raise HTTPException(status_code=403, detail="Checkout is not available for this order")
+        if row["status"] != "awaiting_payment":
+            raise HTTPException(status_code=409, detail="This order is no longer awaiting payment")
+        if row["paymongo_checkout_url"]:
+            return {"checkout_url": row["paymongo_checkout_url"]}
+        lines = connection.execute(
+            "SELECT name, option, quantity, unit_price FROM order_at_table.order_lines WHERE order_id = %s ORDER BY id",
+            (row["id"],),
+        ).fetchall()
+        checkout_id, checkout_url = create_paymongo_session(number, row["table_number"], lines)
+        connection.execute(
+            """UPDATE order_at_table.orders SET paymongo_checkout_id = %s, paymongo_checkout_url = %s
+               WHERE id = %s""",
+            (checkout_id, checkout_url, row["id"]),
+        )
+    return {"checkout_url": checkout_url}
+
+
+@app.post("/api/paymongo/webhook")
+async def paymongo_webhook(request: Request):
+    secret = os.environ.get("PAYMONGO_WEBHOOK_SECRET", "")
+    if not secret or secret.endswith("REPLACE_ME"):
+        raise HTTPException(status_code=503, detail="PayMongo webhook is not configured")
+    body = await request.body()
+    expected_live = paymongo_secret().startswith("sk_live_")
+    if not verify_paymongo_signature(body, request.headers.get("Paymongo-Signature", ""), secret, expected_live):
+        raise HTTPException(status_code=401, detail="Invalid PayMongo signature")
+    try:
+        event = json.loads(body)
+        data = event["data"]
+        live = data["livemode"]
+        session = data["data"]
+        if not isinstance(live, bool):
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid PayMongo event") from None
+    if live != expected_live:
+        raise HTTPException(status_code=400, detail="PayMongo mode mismatch")
+    if data.get("type") != "checkout_session.payment.paid":
+        return {"ok": True}
+    attributes = session.get("attributes", {})
+    payments = attributes.get("payments", [])
+    number = attributes.get("reference_number")
+    if not session.get("id") or not number or not any(
+        payment.get("attributes", {}).get("status") == "paid" and
+        payment.get("attributes", {}).get("currency") == "PHP"
+        for payment in payments
+    ):
+        raise HTTPException(status_code=400, detail="Invalid paid checkout")
+    with database() as connection:
+        row = connection.execute(
+            """SELECT total, status FROM order_at_table.orders
+               WHERE number = %s AND payment_method = 'paymongo' AND paymongo_checkout_id = %s FOR UPDATE""",
+            (number, session["id"]),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="Checkout order was not found")
+        if not any(payment.get("attributes", {}).get("status") == "paid" and
+                   payment.get("attributes", {}).get("currency") == "PHP" and
+                   payment.get("attributes", {}).get("amount") == row["total"] * 100
+                   for payment in payments):
+            raise HTTPException(status_code=409, detail="Checkout amount does not match order")
+        if row["status"] == "awaiting_payment":
+            connection.execute(
+                """UPDATE order_at_table.orders SET status = 'new', payment_confirmed_at = now()
+                   WHERE number = %s""",
+                (number,),
+            )
+    return {"ok": True}
 
 
 @app.get("/api/staff/orders", dependencies=[Depends(require_staff)])
@@ -310,7 +456,7 @@ def confirm_counter_payment(number: str):
         updated = connection.execute(
             """UPDATE order_at_table.orders
                SET status = 'new', payment_confirmed_at = now()
-               WHERE number = %s AND status = 'awaiting_payment' RETURNING number""",
+               WHERE number = %s AND payment_method = 'counter' AND status = 'awaiting_payment' RETURNING number""",
             (number,),
         ).fetchone()
         if updated is None:

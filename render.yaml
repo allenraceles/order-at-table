@@ -11,5 +11,11 @@ services:
         sync: false
       - key: ORDER_STAFF_KEY
         sync: false
+      - key: PAYMONGO_SECRET_KEY
+        sync: false
+      - key: PAYMONGO_WEBHOOK_SECRET
+        sync: false
+      - key: ORDER_CUSTOMER_URL
+        value: https://mesa-customer-ordering.raseresu.chatgpt.site
       - key: ORDER_ALLOWED_ORIGINS
         value: https://mesa-customer-ordering.raseresu.chatgpt.site,https://mesa-foh-dashboard.raseresu.chatgpt.site,https://mesa-kitchen-view.raseresu.chatgpt.site

@@ -661,7 +661,7 @@
         id: escapeHtml(row.number), table: String(row.table_number), time: formatTime(row.created_at), createdAt: row.created_at, paidAt: row.payment_confirmed_at,
         serviceId: row.table_service_id,
         items: row.items.map(line => ({ qty: line.quantity, name: escapeHtml(line.name), detail: escapeHtml(line.option || 'Standard preparation'), price: line.unit_price })),
-        total: row.total, method: paid ? 'Cash at counter' : 'Pay at counter', payment: paid ? 'paid' : 'awaiting', status,
+        total: row.total, method: row.payment_method === 'paymongo' ? 'PayMongo' : (paid ? 'Cash at counter' : 'Pay at counter'), payment: paid ? 'paid' : 'awaiting', status,
         note: '', released: paid,
         history: ['Order received · ' + formatTime(row.created_at), ...(row.payment_confirmed_at ? ['Payment confirmed · ' + formatTime(row.payment_confirmed_at)] : [])]
       };
@@ -732,14 +732,14 @@
     function detailTimeline(order) {
       const steps = [
         { label: 'Order received', detail: order.history[0] ? order.history[0].split(' · ')[1] : order.time, done: true },
-        { label: 'Payment confirmed', detail: order.payment === 'awaiting' ? 'Waiting at counter' : (order.history[1] ? order.history[1].split(' · ')[1] : order.time), done: order.payment === 'paid', current: order.payment === 'awaiting' },
+        { label: 'Payment confirmed', detail: order.payment === 'awaiting' ? (order.method === 'PayMongo' ? 'Waiting for PayMongo' : 'Waiting at counter') : (order.history[1] ? order.history[1].split(' · ')[1] : order.time), done: order.payment === 'paid', current: order.payment === 'awaiting' },
         { label: 'Kitchen release', detail: order.released ? 'Sent to kitchen' : 'Blocked until payment', done: order.released, current: order.payment === 'awaiting' },
         { label: 'Ready to serve', detail: order.status === 'ready' || order.status === 'served' ? 'Kitchen marked ready' : 'Waiting on kitchen', done: order.status === 'ready' || order.status === 'served', current: order.status === 'preparing' }
       ];
       return '<div class="timeline">' + steps.map((step) => '<div class="timeline-step ' + (step.done ? 'done ' : '') + (step.current ? 'current' : '') + '"><span class="timeline-dot">' + (step.done ? '✓' : '·') + '</span><div><strong>' + step.label + '</strong><span>' + step.detail + '</span></div></div>').join('') + '</div>';
     }
     function detailAction(order) {
-      if (order.payment === 'awaiting') return '<button type="button" class="primary-button lime" data-action="confirm-payment">Confirm payment &amp; release <span aria-hidden="true">→</span></button>';
+      if (order.payment === 'awaiting') return order.method === 'PayMongo' ? '<button type="button" class="primary-button" disabled>Waiting for PayMongo confirmation</button>' : '<button type="button" class="primary-button lime" data-action="confirm-payment">Confirm payment &amp; release <span aria-hidden="true">→</span></button>';
       if (order.status === 'new') return '<button type="button" class="primary-button" data-action="advance">Start preparing <span aria-hidden="true">→</span></button>';
       if (order.status === 'preparing') return '<button type="button" class="primary-button" data-action="advance">Mark ready for pickup <span aria-hidden="true">→</span></button>';
       if (order.status === 'ready') return '<button type="button" class="primary-button" data-action="advance">Mark served <span aria-hidden="true">✓</span></button>';
@@ -757,11 +757,11 @@
       document.getElementById('orderDetail').innerHTML =
         '<div class="detail-top"><div class="detail-top-line"><div><div class="eyebrow">Selected order</div><h2>Order #' + order.id + '</h2><div class="detail-top-meta"><span>Table ' + order.table + '</span><span>' + order.time + '</span><span>' + cartItems(order) + ' ' + (cartItems(order) === 1 ? 'item' : 'items') + '</span></div></div><span class="detail-status-badge">' + statusLabel[order.status] + '</span></div></div>' +
         '<div class="detail-body">' +
-          '<div class="release-banner ' + (hold ? 'hold' : '') + '"><span class="release-icon">' + (hold ? '!' : '✓') + '</span><div><strong>' + (hold ? 'Kitchen release is on hold' : 'Kitchen release confirmed') + '</strong><span>' + (hold ? 'Confirm payment at the counter before the kitchen receives this order.' : 'Payment is confirmed. This order can move through service.') + '</span></div></div>' +
+          '<div class="release-banner ' + (hold ? 'hold' : '') + '"><span class="release-icon">' + (hold ? '!' : '✓') + '</span><div><strong>' + (hold ? 'Kitchen release is on hold' : 'Kitchen release confirmed') + '</strong><span>' + (hold ? (order.method === 'PayMongo' ? 'Waiting for PayMongo to confirm payment.' : 'Confirm payment at the counter before the kitchen receives this order.') : 'Payment is confirmed. This order can move through service.') + '</span></div></div>' +
           '<div class="detail-section"><div class="section-label">Order progress</div>' + detailTimeline(order) + '</div>' +
           '<div class="detail-section"><div class="section-label">Items · ' + cartItems(order) + '</div><div class="item-list">' + order.items.map((item) => '<div class="detail-item"><span class="detail-item-qty">' + item.qty + '</span><div><strong>' + item.name + '</strong><span>' + item.detail + '</span></div><span class="detail-item-price">' + money(item.price * item.qty) + '</span></div>').join('') + '</div></div>' +
           (order.note ? '<div class="detail-section"><div class="section-label">Guest note</div><div class="guest-note"><strong>Needs attention</strong><p>' + order.note + '</p></div></div>' : '') +
-          '<div class="detail-section"><div class="section-label">Payment</div><div class="payment-card"><div class="payment-card-left"><span class="payment-logo ' + paymentLogo + '">' + (paymentLogo === 'gcash' ? 'G' : paymentLogo === 'maya' ? 'M' : paymentLogo === 'qrph' ? 'QR' : '₱') + '</span><div><strong>' + order.method + '</strong><span>' + (hold ? 'Complete at counter' : 'Prices include VAT') + '</span></div></div><span class="payment-card-status ' + (hold ? 'pending' : '') + '">' + (hold ? 'Pending' : 'Confirmed') + '</span></div></div>' +
+          '<div class="detail-section"><div class="section-label">Payment</div><div class="payment-card"><div class="payment-card-left"><span class="payment-logo ' + paymentLogo + '">' + (paymentLogo === 'gcash' ? 'G' : paymentLogo === 'maya' ? 'M' : paymentLogo === 'qrph' ? 'QR' : '₱') + '</span><div><strong>' + order.method + '</strong><span>' + (hold ? (order.method === 'PayMongo' ? 'Complete online' : 'Complete at counter') : 'Prices include VAT') + '</span></div></div><span class="payment-card-status ' + (hold ? 'pending' : '') + '">' + (hold ? 'Pending' : 'Confirmed') + '</span></div></div>' +
           '<div class="totals"><div class="total-line"><span>Subtotal</span><strong>' + money(order.total) + '</strong></div><div class="total-line"><span>VAT</span><span>Included</span></div><div class="total-line grand"><span>Total</span><strong>' + money(order.total) + '</strong></div></div>' +
           '<div class="detail-actions">' + detailAction(order) + '<button type="button" class="outline-button" data-action="view-table">Table ' + order.table + '</button></div>' +
         '</div>';
@@ -852,7 +852,7 @@
       } catch (error) { showToast(error.message); await refreshOrders(); throw error; }
     }
     async function confirmPayment(order) {
-      if (order.payment !== 'awaiting') throw new Error('This order does not need counter payment.');
+      if (order.payment !== 'awaiting' || order.method === 'PayMongo') throw new Error('This order does not need counter payment.');
       try {
         await staffApi('/api/staff/orders/' + encodeURIComponent(order.id) + '/confirm-payment', { method: 'POST' });
         await refreshOrders();

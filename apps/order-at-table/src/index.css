@@ -254,7 +254,7 @@
       .summary-box .grand { color: var(--ink); border-top: 1px solid #dfe5da; }
       .payment-heading { font-size: .87rem; font-weight: 850; margin: 20px 0 9px; }
       .payment-options { display: grid; gap: 8px; }
-      .payment-option { display: flex; align-items: center; gap: 11px; border: 1px solid var(--line); background: white; border-radius: 13px; padding: 12px; text-align: left; }
+      .payment-option { display: flex; align-items: center; gap: 11px; width: 100%; border: 1px solid var(--line); background: white; border-radius: 13px; padding: 12px; text-align: left; font: inherit; cursor: pointer; }
       .payment-option.selected { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(20,36,31,.08); }
       .payment-logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: .76rem; font-weight: 900; }
       .payment-logo.gcash { background: #e0f0ff; color: #007cff; }
