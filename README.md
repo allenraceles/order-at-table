@@ -54,8 +54,8 @@ The repository includes `render.yaml` and a Dockerfile for a Render web service.
 
 1. Push this repository to a GitHub, GitLab, or Bitbucket repository you control. Keep `.env` out of Git.
 2. In Render, choose **New → Blueprint**, connect that repository, and select its root `render.yaml`. Render will build `backend/Dockerfile` and ask for `SUPABASE_DB_URL` and `ORDER_STAFF_KEY`. Copy those exact values from your local `.env` into Render's secret fields. The Blueprint already lists the three Site origins for CORS.
-3. Once deployed, open `https://YOUR-SERVICE.onrender.com/api/health`. It should return `{"ok":true}`. Copy the service's HTTPS origin, without `/api/health`.
-4. Set `VITE_API_BASE_URL` to that origin in the build environment for **each** frontend, then rebuild and republish the customer, Front of house, and Kitchen Sites. Vite embeds the value at build time; changing it after publishing will not update the hosted apps.
+3. The API is deployed at `https://mesa-order-api.onrender.com`; open its `/api/health` endpoint to confirm `{"ok":true}`.
+4. The published frontend configuration is in `.env.production`: all three apps build with this API origin and RestauPro's browser-safe Supabase values. Rebuild and republish the customer, Front of house, and Kitchen Sites after changes to this file. Vite embeds these values at build time.
 5. Open each published Site and verify that a new customer order appears in Front of house, payment confirmation releases it to Kitchen, and Kitchen status changes appear on the customer's order page.
 
 Keep `ORDER_STAFF_KEY` private and share it only with trusted staff who need the FOH or Kitchen screens. Do not put `SUPABASE_DB_URL` or `ORDER_STAFF_KEY` in a `VITE_` variable. The published sites cannot use live orders until the API is deployed and their builds include its URL.
