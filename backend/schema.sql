@@ -49,11 +49,24 @@ CREATE TABLE IF NOT EXISTS order_at_table.orders (
   completed_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS order_at_table.dining_tables (
+  number integer PRIMARY KEY CHECK (number > 0),
+  seats integer NOT NULL CHECK (seats > 0),
+  current_service_id uuid,
+  service_started_at timestamptz
+);
+
+INSERT INTO order_at_table.dining_tables (number, seats) VALUES
+  (2, 2), (4, 4), (6, 4), (8, 2), (9, 4), (11, 2),
+  (12, 4), (14, 6), (15, 2), (16, 4), (18, 4), (20, 6)
+ON CONFLICT (number) DO NOTHING;
+
 ALTER TABLE order_at_table.orders
   ADD COLUMN IF NOT EXISTS payment_confirmed_at timestamptz,
   ADD COLUMN IF NOT EXISTS preparing_at timestamptz,
   ADD COLUMN IF NOT EXISTS ready_at timestamptz,
   ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+ALTER TABLE order_at_table.orders ADD COLUMN IF NOT EXISTS table_service_id uuid;
 ALTER TABLE order_at_table.orders DROP CONSTRAINT IF EXISTS orders_status_check;
 ALTER TABLE order_at_table.orders ADD CONSTRAINT orders_status_check
   CHECK (status IN ('awaiting_payment', 'new', 'preparing', 'ready', 'complete', 'cancelled'));
@@ -70,11 +83,14 @@ CREATE TABLE IF NOT EXISTS order_at_table.order_lines (
 
 CREATE INDEX IF NOT EXISTS order_at_table_order_lines_order_id_idx
   ON order_at_table.order_lines(order_id);
+CREATE INDEX IF NOT EXISTS order_at_table_orders_table_service_id_idx
+  ON order_at_table.orders(table_service_id, id DESC);
 
 ALTER TABLE public.order_at_table_menu_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_at_table_menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_at_table.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_at_table.order_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_at_table.dining_tables ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA order_at_table FROM anon, authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA order_at_table FROM anon, authenticated;

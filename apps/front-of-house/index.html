@@ -418,6 +418,8 @@
     .inspector-stat span { color: var(--muted); font-size: 11px; }
     .inspector-stat strong { font-size: 12px; }
     .inspector-body .primary-button { width: 100%; margin-top: 17px; }
+    .inspector-actions { display: grid; gap: 9px; margin-top: 17px; }
+    .inspector-actions .primary-button, .inspector-actions .outline-button { width: 100%; margin-top: 0; }
     .mobile-nav { display: none; }
     .toast {
       position: fixed;
@@ -613,7 +615,7 @@
 
         <section id="tablesView" class="view" aria-labelledby="tablesTitle">
           <div class="tables-head">
-            <div><div class="eyebrow">Front of house</div><h1 id="tablesTitle">Table overview</h1><p>See who is ordering, waiting, or ready to be served.</p></div>
+            <div><div class="eyebrow">Front of house</div><h1 id="tablesTitle">Table overview</h1><p>Use each table number in its guest ordering link. Order numbers identify individual purchases.</p></div>
             <div class="legend"><span class="legend-item"><i class="legend-dot"></i> Available</span><span class="legend-item"><i class="legend-dot busy"></i> Occupied</span><span class="legend-item"><i class="legend-dot alert"></i> Needs action</span></div>
           </div>
           <div class="table-layout">
@@ -647,7 +649,9 @@
     const money = (value) => '₱' + Number(value).toLocaleString('en-PH');
     let orders = [];
     let tables = [];
-    const tableSeats = { '2': 2, '4': 4, '6': 4, '8': 2, '9': 4, '11': 2, '12': 4, '14': 6, '15': 2, '16': 4, '18': 4, '20': 6 };
+    let diningTables = [];
+    const orderingBase = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:5173/' : 'https://mesa-customer-ordering.raseresu.chatgpt.site/';
     const state = { view: 'orders', filter: 'all', selectedOrder: null, selectedTable: '18', query: '', toastTimer: null, connected: false, loading: false };
 
     function mapOrder(row) {
@@ -655,6 +659,7 @@
       const status = { awaiting_payment: 'awaiting', new: 'new', preparing: 'preparing', ready: 'ready', complete: 'served' }[row.status] || 'awaiting';
       return {
         id: escapeHtml(row.number), table: String(row.table_number), time: formatTime(row.created_at), createdAt: row.created_at, paidAt: row.payment_confirmed_at,
+        serviceId: row.table_service_id,
         items: row.items.map(line => ({ qty: line.quantity, name: escapeHtml(line.name), detail: escapeHtml(line.option || 'Standard preparation'), price: line.unit_price })),
         total: row.total, method: paid ? 'Cash at counter' : 'Pay at counter', payment: paid ? 'paid' : 'awaiting', status,
         note: '', released: paid,
@@ -662,20 +667,23 @@
       };
     }
     function syncTables() {
-      const ids = new Set([...Object.keys(tableSeats), ...orders.map(order => order.table)]);
-      tables = [...ids].sort((a, b) => Number(a) - Number(b)).map(id => {
-        const order = orders.find(candidate => candidate.table === id && candidate.status !== 'served');
-        const state = !order ? 'available' : order.payment === 'awaiting' ? 'alert' : 'busy';
-        const detail = !order ? 'Available' : statusLabel[order.status];
-        return { id, seats: tableSeats[id] || 4, state, order: order?.id || null, detail };
+      tables = diningTables.map(row => {
+        const id = String(row.number);
+        const serviceOrders = orders.filter(candidate => candidate.table === id && candidate.serviceId === row.current_service_id && row.current_service_id);
+        const order = serviceOrders[0];
+        const state = !row.current_service_id ? 'available' : order?.payment === 'awaiting' ? 'alert' : 'busy';
+        const detail = !row.current_service_id ? 'Available' : !order ? 'In service' : order.status === 'served' ? 'Service complete' : statusLabel[order.status];
+        return { id, seats: row.seats, serviceId: row.current_service_id, state, order: order?.id || null, detail,
+          hasPending: serviceOrders.some(candidate => candidate.status !== 'served') };
       });
     }
     async function refreshOrders() {
       if (state.loading || !getStaffKey()) return;
       state.loading = true;
       try {
-        const data = await staffApi('/api/staff/orders');
+        const [data, tableData] = await Promise.all([staffApi('/api/staff/orders'), staffApi('/api/staff/tables')]);
         orders = data.orders.filter(row => row.status !== 'cancelled').map(mapOrder);
+        diningTables = tableData.tables;
         state.connected = true;
         if (!orders.some(order => order.id === state.selectedOrder)) state.selectedOrder = orders[0]?.id || null;
         syncTables();
@@ -687,6 +695,7 @@
       } catch (error) {
         state.connected = false;
         orders = [];
+        diningTables = [];
         syncTables();
         if (error.status === 401) setStaffKey('');
         document.getElementById('connectionMessage').textContent = error.message;
@@ -795,6 +804,7 @@
         return '<button type="button" class="table-tile ' + table.state + ' ' + (state.selectedTable === table.id ? 'selected' : '') + '" data-table-id="' + table.id + '" aria-label="Table ' + table.id + ', ' + table.detail + '"><span class="table-tile-top"><span><strong>Table ' + table.id + '</strong><small>' + table.seats + ' seats</small></span><i class="table-state ' + table.state + '"></i></span><span class="table-tile-foot"><span>' + table.detail + '</span><strong>' + (order ? money(order.total) : '') + '</strong></span></button>';
       }).join('');
       const table = getTable(state.selectedTable) || tables[0];
+      if (!table) { document.getElementById('tableInspector').innerHTML = '<div class="empty-state">Connect to load tables.</div>'; return; }
       const order = table.order ? getOrder(table.order) : null;
       document.getElementById('tableInspector').innerHTML =
         '<div class="inspector-top"><div class="eyebrow">Table details</div><h2>Table ' + table.id + '</h2><p>' + table.seats + ' seats · ' + table.detail + '</p></div>' +
@@ -803,7 +813,13 @@
           '<div class="inspector-stat"><span>Current order</span><strong>' + (order ? '#' + order.id : 'No order yet') + '</strong></div>' +
           '<div class="inspector-stat"><span>Payment</span><strong>' + (order ? (order.payment === 'paid' ? 'Confirmed' : 'At counter') : '—') + '</strong></div>' +
           '<div class="inspector-stat"><span>Table total</span><strong>' + (order ? money(order.total) : '—') + '</strong></div>' +
-          (order ? '<button type="button" class="primary-button" data-action="open-order">Open order #' + order.id + ' <span aria-hidden="true">→</span></button>' : '<button type="button" class="primary-button" data-action="toast" data-message="Table ' + table.id + ' is ready for a new guest.">Mark table in service</button>') +
+          '<div class="inspector-actions">' +
+            (table.serviceId
+              ? (order ? '<button type="button" class="primary-button" data-action="open-order">Open order #' + order.id + ' <span aria-hidden="true">→</span></button>' : '') +
+                '<button type="button" class="outline-button" data-action="copy-table-link">Copy Table ' + table.id + ' ordering link</button>' +
+                '<button type="button" class="outline-button" data-action="end-service" ' + (table.hasPending ? 'disabled title="Finish all orders first"' : '') + '>End table service</button>'
+              : '<button type="button" class="primary-button" data-action="start-service">Mark table in service</button>') +
+          '</div>' +
         '</div>';
     }
     function renderView() {
@@ -843,6 +859,15 @@
         showToast('Payment confirmed. Order #' + order.id + ' is released to the kitchen.');
         return { orderId: order.id, status: 'new', payment: 'confirmed', kitchenReleased: true };
       } catch (error) { showToast(error.message); await refreshOrders(); throw error; }
+    }
+    async function changeTableService(action) {
+      const table = getTable(state.selectedTable);
+      if (!table) return;
+      try {
+        await staffApi('/api/staff/tables/' + table.id + '/' + action + '-service', { method: 'POST' });
+        await refreshOrders();
+        showToast('Table ' + table.id + (action === 'start' ? ' is in service. Share its ordering link with the guest.' : ' is available for the next guest.'));
+      } catch (error) { showToast(error.message); await refreshOrders(); }
     }
     function registerWebMCP() {
       const context = document.modelContext;
@@ -919,6 +944,15 @@
         state.filter = 'awaiting'; render();
       } else if (action.dataset.action === 'refresh') {
         refreshOrders();
+      } else if (action.dataset.action === 'start-service') {
+        changeTableService('start');
+      } else if (action.dataset.action === 'end-service') {
+        changeTableService('end');
+      } else if (action.dataset.action === 'copy-table-link') {
+        const table = getTable(state.selectedTable);
+        if (table) navigator.clipboard.writeText(orderingBase + '?table=' + table.id)
+          .then(() => showToast('Table ' + table.id + ' ordering link copied.'))
+          .catch(() => showToast('Could not copy the link.'));
       } else if (action.dataset.action === 'toast') {
         showToast(action.dataset.message || 'Action completed.');
       }
@@ -931,7 +965,6 @@
       refreshOrders();
     });
     document.getElementById('todayLabel').textContent = new Intl.DateTimeFormat('en-PH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Manila' }).format(new Date());
-    syncTables();
     registerWebMCP();
     render();
     if (getStaffKey()) refreshOrders();

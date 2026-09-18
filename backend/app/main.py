@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import uuid
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -27,6 +28,7 @@ class OrderLineInput(BaseModel):
 
 class OrderInput(BaseModel):
     table_number: int = Field(ge=1)
+    table_service_id: uuid.UUID
     payment_method: Literal["counter"]
     items: list[OrderLineInput] = Field(min_length=1, max_length=20)
 
@@ -61,13 +63,14 @@ def database():
 
 def read_order(connection: psycopg.Connection, number: str) -> dict | None:
     order = connection.execute(
-        """SELECT number, table_number, payment_method, status, total, created_at,
+        """SELECT number, table_number, table_service_id, payment_method, status, total, created_at,
                   payment_confirmed_at, preparing_at, ready_at, completed_at
            FROM order_at_table.orders WHERE number = %s""",
         (number,),
     ).fetchone()
     if order is None:
         return None
+    order["table_service_id"] = str(order["table_service_id"]) if order["table_service_id"] else None
     order["items"] = connection.execute(
         """SELECT item_id, name, option, quantity, unit_price
            FROM order_at_table.order_lines WHERE order_id = (
@@ -87,7 +90,7 @@ def serialize_timestamps(order: dict) -> None:
 
 def list_orders(connection: psycopg.Connection) -> list[dict]:
     orders = connection.execute(
-        """SELECT id, number, table_number, payment_method, status, total, created_at,
+        """SELECT id, number, table_number, table_service_id, payment_method, status, total, created_at,
                   payment_confirmed_at, preparing_at, ready_at, completed_at
            FROM order_at_table.orders ORDER BY id DESC LIMIT 200"""
     ).fetchall()
@@ -103,6 +106,7 @@ def list_orders(connection: psycopg.Connection) -> list[dict]:
     for line in lines:
         by_order[line.pop("order_id")].append(line)
     for order in orders:
+        order["table_service_id"] = str(order["table_service_id"]) if order["table_service_id"] else None
         order["items"] = by_order[order.pop("id")]
         serialize_timestamps(order)
     return orders
@@ -151,9 +155,38 @@ def get_menu():
     return {"categories": ["All", *(category["label"] for category in categories)], "menu": sections}
 
 
+def serialize_table(table: dict) -> dict:
+    return {
+        "number": table["number"],
+        "seats": table["seats"],
+        "current_service_id": str(table["current_service_id"]) if table["current_service_id"] else None,
+        "service_started_at": table["service_started_at"].isoformat() if table["service_started_at"] else None,
+    }
+
+
+@app.get("/api/tables/{number}/service")
+def get_table_service(number: int):
+    with database() as connection:
+        table = connection.execute(
+            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables WHERE number = %s",
+            (number,),
+        ).fetchone()
+    if table is None:
+        raise HTTPException(status_code=404, detail="Unknown table number")
+    return serialize_table(table)
+
+
 @app.post("/api/orders", status_code=201)
 def create_order(payload: OrderInput):
     with database() as connection:
+        table = connection.execute(
+            "SELECT current_service_id FROM order_at_table.dining_tables WHERE number = %s FOR UPDATE",
+            (payload.table_number,),
+        ).fetchone()
+        if table is None:
+            raise HTTPException(status_code=404, detail="Unknown table number")
+        if table["current_service_id"] != payload.table_service_id:
+            raise HTTPException(status_code=409, detail="This table service has ended. Ask staff to start a new service.")
         lines = []
         for line in payload.items:
             item = connection.execute(
@@ -175,10 +208,10 @@ def create_order(payload: OrderInput):
             number = str(secrets.randbelow(9000) + 1000)
             inserted = connection.execute(
                 """INSERT INTO order_at_table.orders
-                   (number, table_number, payment_method, status, total)
-                   VALUES (%s, %s, %s, 'awaiting_payment', %s)
+                   (number, table_number, table_service_id, payment_method, status, total)
+                   VALUES (%s, %s, %s, %s, 'awaiting_payment', %s)
                    ON CONFLICT (number) DO NOTHING RETURNING id""",
-                (number, payload.table_number, payload.payment_method, total),
+                (number, payload.table_number, payload.table_service_id, payload.payment_method, total),
             ).fetchone()
             if inserted is not None:
                 break
@@ -208,6 +241,58 @@ def get_order(number: str):
 def get_staff_orders():
     with database() as connection:
         return {"orders": list_orders(connection)}
+
+
+@app.get("/api/staff/tables", dependencies=[Depends(require_staff)])
+def get_staff_tables():
+    with database() as connection:
+        rows = connection.execute(
+            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables ORDER BY number"
+        ).fetchall()
+    return {"tables": [serialize_table(row) for row in rows]}
+
+
+@app.post("/api/staff/tables/{number}/start-service", dependencies=[Depends(require_staff)])
+def start_table_service(number: int):
+    with database() as connection:
+        table = connection.execute(
+            """UPDATE order_at_table.dining_tables
+               SET current_service_id = %s, service_started_at = now()
+               WHERE number = %s AND current_service_id IS NULL
+               RETURNING number, seats, current_service_id, service_started_at""",
+            (uuid.uuid4(), number),
+        ).fetchone()
+        if table is None:
+            existing = connection.execute("SELECT number FROM order_at_table.dining_tables WHERE number = %s", (number,)).fetchone()
+            raise HTTPException(status_code=404 if existing is None else 409,
+                                detail="Unknown table number" if existing is None else "Table is already in service")
+    return serialize_table(table)
+
+
+@app.post("/api/staff/tables/{number}/end-service", dependencies=[Depends(require_staff)])
+def end_table_service(number: int):
+    with database() as connection:
+        table = connection.execute(
+            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables WHERE number = %s FOR UPDATE",
+            (number,),
+        ).fetchone()
+        if table is None:
+            raise HTTPException(status_code=404, detail="Unknown table number")
+        if table["current_service_id"] is None:
+            raise HTTPException(status_code=409, detail="Table is not in service")
+        pending = connection.execute(
+            """SELECT 1 FROM order_at_table.orders
+               WHERE table_service_id = %s AND status NOT IN ('complete', 'cancelled') LIMIT 1""",
+            (table["current_service_id"],),
+        ).fetchone()
+        if pending:
+            raise HTTPException(status_code=409, detail="Finish all orders before ending table service")
+        updated = connection.execute(
+            """UPDATE order_at_table.dining_tables SET current_service_id = NULL, service_started_at = NULL
+               WHERE number = %s RETURNING number, seats, current_service_id, service_started_at""",
+            (number,),
+        ).fetchone()
+    return serialize_table(updated)
 
 
 @app.post("/api/staff/orders/{number}/confirm-payment", dependencies=[Depends(require_staff)])
