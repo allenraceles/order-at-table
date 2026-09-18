@@ -517,6 +517,31 @@
       .mobile-nav svg { width: 17px; height: 17px; }
       .toast { bottom: 78px; }
     }
+    .admin-jump { display:flex; flex-wrap:wrap; gap:9px; margin:0 0 20px; }
+    .admin-jump a { color:var(--ink); background:var(--white); border:1px solid var(--line-strong); border-radius:999px; padding:9px 15px; text-decoration:none; font-size:14px; font-weight:750; }
+    .admin-jump a:hover { border-color:var(--ink); }
+    .admin-section { margin:0 0 20px; padding:24px; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper); }
+    .admin-section h2 { margin:0 0 5px; font-size:22px; letter-spacing:-.03em; }
+    .admin-section > p { margin:0 0 20px; color:var(--muted); font-size:14px; }
+    .admin-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .admin-grid .wide { grid-column:1/-1; }
+    .admin-field { display:flex; flex-direction:column; gap:6px; min-width:0; color:var(--ink); font-size:14px; font-weight:700; }
+    .admin-field input, .admin-field select, .admin-field textarea { width:100%; min-height:42px; border:1px solid var(--line-strong); border-radius:9px; padding:9px 11px; background:#fff; color:var(--ink); font:inherit; font-weight:450; }
+    .admin-field textarea { min-height:90px; resize:vertical; }
+    .admin-field input[type=color] { padding:4px; width:85px; }
+    .admin-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:18px; }
+    .admin-split { display:grid; grid-template-columns:minmax(260px,1fr) minmax(300px,1.2fr); gap:20px; }
+    .admin-list { display:grid; gap:8px; align-content:start; max-height:580px; overflow:auto; }
+    .admin-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; border:1px solid var(--line); border-radius:10px; background:#fff; padding:11px 13px; color:var(--ink); text-align:left; }
+    .admin-row:hover, .admin-row.selected { border-color:var(--ink); }
+    .admin-row strong, .admin-row small { display:block; }
+    .admin-row small { margin-top:3px; color:var(--muted); font-size:12px; }
+    .admin-row .muted { color:var(--muted); }
+    .admin-form-box { border:1px solid var(--line); border-radius:12px; padding:18px; background:#fff; }
+    .admin-form-box h3 { margin:0 0 14px; font-size:17px; }
+    .admin-empty { padding:18px; color:var(--muted); border:1px dashed var(--line-strong); border-radius:10px; }
+    @media (max-width: 930px) { .admin-split { grid-template-columns:1fr; } }
+    @media (max-width: 680px) { .admin-section { padding:17px; } .admin-grid { grid-template-columns:1fr; } .admin-grid .wide { grid-column:auto; } .mobile-nav { grid-template-columns:repeat(3,1fr); } }
   </style>
 </head>
 <body>
@@ -542,6 +567,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
           <span>Tables</span><b class="nav-count" id="navTableCount">6</b>
         </button>
+        <button type="button" data-view="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="17" r="2" fill="currentColor"/></svg><span>Manage</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="staff-card">
@@ -626,6 +652,51 @@
             <section class="panel table-inspector" id="tableInspector" aria-live="polite"></section>
           </div>
         </section>
+        <section id="adminView" class="view" aria-labelledby="adminTitle">
+          <div class="page-heading"><div><div class="eyebrow">Restaurant settings</div><h1 id="adminTitle">Manage your restaurant</h1><p>Changes to the menu and branding appear in guest ordering after a refresh.</p></div></div>
+          <nav class="admin-jump" aria-label="Management sections"><a href="#brandingSettings">Branding &amp; information</a><a href="#menuSettings">Menu</a><a href="#tableSettings">Tables</a></nav>
+          <section class="admin-section" id="brandingSettings"><h2>Branding &amp; restaurant information</h2><p>These details appear in the guest ordering header and the front-of-house sidebar.</p>
+            <form id="restaurantForm"><div class="admin-grid">
+              <label class="admin-field">Restaurant name<input name="name" required maxlength="100" /></label>
+              <label class="admin-field">Location label<input name="location" required maxlength="120" /></label>
+              <label class="admin-field wide">Street address<input name="address" maxlength="240" /></label>
+              <label class="admin-field">Phone<input name="phone" type="tel" maxlength="50" /></label>
+              <label class="admin-field">Hours label<input name="hours" required maxlength="100" /></label>
+              <label class="admin-field">Brand mark (1–3 characters)<input name="brand_mark" required maxlength="3" /></label>
+              <label class="admin-field">Accent color<input name="accent_color" type="color" value="#dce85d" /></label>
+              <label class="admin-field wide">Header<input name="header" required maxlength="160" /></label>
+              <label class="admin-field wide">Subheader<textarea name="subheader" required maxlength="500"></textarea></label>
+            </div><div class="admin-actions"><button class="primary-button" type="submit">Save restaurant details</button></div></form>
+          </section>
+          <section class="admin-section" id="menuSettings"><h2>Menu</h2><p>Add dishes, edit prices and options, or hide items from guest ordering.</p>
+            <div class="admin-split"><div><h3>Categories</h3><div id="adminCategories" class="admin-list"></div></div>
+              <form id="categoryForm" class="admin-form-box"><h3 id="categoryFormTitle">Add category</h3><div class="admin-grid">
+                <label class="admin-field wide">Name<input name="label" required maxlength="80" /></label>
+                <label class="admin-field">Display order<input name="display_order" type="number" min="0" max="10000" value="0" required /></label>
+                <label class="admin-field">Visible<select name="is_active"><option value="true">Yes</option><option value="false">No</option></select></label>
+              </div><div class="admin-actions"><button class="primary-button" type="submit">Save category</button><button class="outline-button" type="button" data-action="new-category">New category</button></div></form></div>
+            <div class="admin-split" style="margin-top:24px"><div><h3>Items</h3><div id="adminItems" class="admin-list"></div></div>
+              <form id="itemForm" class="admin-form-box"><h3 id="itemFormTitle">Add menu item</h3><div class="admin-grid">
+                <label class="admin-field wide">Name<input name="name" required maxlength="120" /></label>
+                <label class="admin-field">Category<select name="category_id" required></select></label>
+                <label class="admin-field">Price (₱)<input name="price" type="number" min="0" max="1000000" required /></label>
+                <label class="admin-field wide">Description<textarea name="description" maxlength="500"></textarea></label>
+                <label class="admin-field wide">Image URL<input name="image_url" type="url" maxlength="1000" placeholder="https://…" /></label>
+                <label class="admin-field">Tag<input name="tag" maxlength="60" placeholder="Popular" /></label>
+                <label class="admin-field">Display order<input name="display_order" type="number" min="0" max="10000" value="0" required /></label>
+                <label class="admin-field wide">Options (one per line)<textarea name="options" placeholder="Regular&#10;Large +₱40"></textarea></label>
+                <label class="admin-field">Available<select name="is_available"><option value="true">Yes</option><option value="false">No</option></select></label>
+              </div><div class="admin-actions"><button class="primary-button" type="submit">Save item</button><button class="outline-button" type="button" data-action="new-item">New item</button></div></form></div>
+          </section>
+          <section class="admin-section" id="tableSettings"><h2>Tables</h2><p>Add a table, change its capacity, or remove it from guest ordering. Tables in service must be ended first.</p>
+            <div class="admin-split"><div id="adminTables" class="admin-list"></div>
+              <form id="tableForm" class="admin-form-box"><h3 id="tableFormTitle">Add table</h3><div class="admin-grid">
+                <label class="admin-field">Table number<input name="number" type="number" min="1" max="9999" required /></label>
+                <label class="admin-field">Seats<input name="seats" type="number" min="1" max="100" required /></label>
+                <label class="admin-field">Active<select name="is_active"><option value="true">Yes</option><option value="false">No</option></select></label>
+              </div><div class="admin-actions"><button class="primary-button" type="submit">Save table</button><button class="outline-button" type="button" data-action="new-table">New table</button></div></form></div>
+          </section>
+        </section>
       </div>
     </main>
   </div>
@@ -633,6 +704,7 @@
   <nav class="mobile-nav" aria-label="Mobile navigation">
     <button type="button" class="active" data-view="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4.5h14v15H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Orders</span></button>
     <button type="button" data-view="tables"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg><span>Tables</span></button>
+    <button type="button" data-view="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Manage</span></button>
   </nav>
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-mark">✓</span><span id="toastMessage"></span></div>
@@ -650,6 +722,10 @@
     let orders = [];
     let tables = [];
     let diningTables = [];
+    let adminData = { categories: [], items: [], tables: [], restaurant: null };
+    let editingCategory = null;
+    let editingItem = null;
+    let editingTable = null;
     const orderingBase = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:5173/' : 'https://mesa-customer-ordering.raseresu.chatgpt.site/';
     const state = { view: 'orders', filter: 'all', selectedOrder: null, selectedTable: '18', query: '', toastTimer: null, connected: false, loading: false };
@@ -704,6 +780,113 @@
         document.getElementById('queueSyncStatus').textContent = 'Offline';
         render();
       } finally { state.loading = false; }
+    }
+
+    const field = (form, name) => form.elements.namedItem(name);
+    function updateRestaurantDisplay(restaurant) {
+      if (!restaurant) return;
+      document.querySelector('.brand-copy strong').textContent = restaurant.name;
+      document.querySelector('.mobile-brand strong').textContent = restaurant.name;
+      document.querySelectorAll('.brand-mark').forEach(mark => { mark.textContent = restaurant.brand_mark; });
+      document.querySelector('.venue-card > strong').textContent = restaurant.location;
+      document.querySelector('.venue-card .status-line').textContent = restaurant.hours;
+      document.documentElement.style.setProperty('--lime', restaurant.accent_color);
+      document.title = restaurant.name + ' · Front of house';
+    }
+    async function loadAdmin() {
+      try {
+        const [restaurant, menu, tableResult] = await Promise.all([
+          staffApi('/api/staff/admin/restaurant'), staffApi('/api/staff/admin/menu'), staffApi('/api/staff/admin/tables')
+        ]);
+        adminData = { restaurant, categories: menu.categories, items: menu.items, tables: tableResult.tables };
+        updateRestaurantDisplay(restaurant);
+        const form = document.getElementById('restaurantForm');
+        Object.entries(restaurant).forEach(([key, value]) => { if (field(form, key)) field(form, key).value = value ?? ''; });
+        renderAdmin();
+      } catch (error) { showToast(error.message); }
+    }
+    function renderAdmin() {
+      const { categories, items, tables: allTables } = adminData;
+      document.getElementById('adminCategories').innerHTML = categories.length ? categories.map(category =>
+        '<button class="admin-row ' + (editingCategory === category.id ? 'selected' : '') + '" type="button" data-admin-category="' + escapeHtml(category.id) + '"><span><strong>' + escapeHtml(category.label) + '</strong><small>Order ' + category.display_order + '</small></span><span class="' + (category.is_active ? '' : 'muted') + '">' + (category.is_active ? 'Visible' : 'Hidden') + '</span></button>'
+      ).join('') : '<div class="admin-empty">No categories yet.</div>';
+      document.getElementById('adminItems').innerHTML = items.length ? items.map(item =>
+        '<button class="admin-row ' + (editingItem === item.id ? 'selected' : '') + '" type="button" data-admin-item="' + escapeHtml(item.id) + '"><span><strong>' + escapeHtml(item.name) + '</strong><small>' + escapeHtml(categories.find(category => category.id === item.category_id)?.label || 'Uncategorized') + ' · ' + money(item.price) + '</small></span><span class="' + (item.is_available ? '' : 'muted') + '">' + (item.is_available ? 'Available' : 'Hidden') + '</span></button>'
+      ).join('') : '<div class="admin-empty">No items yet.</div>';
+      document.getElementById('adminTables').innerHTML = allTables.length ? allTables.map(table =>
+        '<button class="admin-row ' + (editingTable === table.number ? 'selected' : '') + '" type="button" data-admin-table="' + table.number + '"><span><strong>Table ' + table.number + '</strong><small>' + table.seats + ' seats' + (table.current_service_id ? ' · In service' : '') + '</small></span><span class="' + (table.is_active ? '' : 'muted') + '">' + (table.is_active ? 'Active' : 'Inactive') + '</span></button>'
+      ).join('') : '<div class="admin-empty">No tables yet.</div>';
+      const categorySelect = field(document.getElementById('itemForm'), 'category_id');
+      const selected = categorySelect.value;
+      categorySelect.innerHTML = categories.map(category => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.label) + '</option>').join('');
+      if (categories.some(category => category.id === selected)) categorySelect.value = selected;
+    }
+    function editCategory(id) {
+      editingCategory = id;
+      const category = adminData.categories.find(row => row.id === id);
+      const form = document.getElementById('categoryForm');
+      form.reset();
+      if (category) { field(form, 'label').value = category.label; field(form, 'display_order').value = category.display_order; field(form, 'is_active').value = String(category.is_active); }
+      document.getElementById('categoryFormTitle').textContent = category ? 'Edit category' : 'Add category';
+      renderAdmin();
+    }
+    function editItem(id) {
+      editingItem = id;
+      const item = adminData.items.find(row => row.id === id);
+      const form = document.getElementById('itemForm');
+      form.reset();
+      if (item) {
+        ['category_id', 'name', 'description', 'price', 'image_url', 'tag', 'display_order'].forEach(key => { field(form, key).value = item[key] ?? ''; });
+        field(form, 'options').value = (item.options || []).join('\n');
+        field(form, 'is_available').value = String(item.is_available);
+      }
+      document.getElementById('itemFormTitle').textContent = item ? 'Edit menu item' : 'Add menu item';
+      renderAdmin();
+    }
+    function editTable(number) {
+      editingTable = number;
+      const table = adminData.tables.find(row => row.number === number);
+      const form = document.getElementById('tableForm');
+      form.reset();
+      field(form, 'number').readOnly = !!table;
+      if (table) { field(form, 'number').value = table.number; field(form, 'seats').value = table.seats; field(form, 'is_active').value = String(table.is_active); }
+      document.getElementById('tableFormTitle').textContent = table ? 'Edit table' : 'Add table';
+      renderAdmin();
+    }
+    async function saveAdminForm(form) {
+      const values = Object.fromEntries(new FormData(form));
+      let path, method = 'PUT', success;
+      if (form.id === 'restaurantForm') {
+        path = '/api/staff/admin/restaurant'; success = 'Restaurant details saved.';
+      } else if (form.id === 'categoryForm') {
+        values.display_order = Number(values.display_order); values.is_active = values.is_active === 'true';
+        path = '/api/staff/admin/categories' + (editingCategory ? '/' + encodeURIComponent(editingCategory) : '');
+        if (!editingCategory) method = 'POST'; success = 'Category saved.';
+      } else if (form.id === 'itemForm') {
+        values.price = Number(values.price); values.display_order = Number(values.display_order);
+        values.is_available = values.is_available === 'true';
+        values.options = values.options.split('\n').map(option => option.trim()).filter(Boolean);
+        values.tag = values.tag || null;
+        path = '/api/staff/admin/items' + (editingItem ? '/' + encodeURIComponent(editingItem) : '');
+        if (!editingItem) method = 'POST'; success = 'Menu item saved.';
+      } else {
+        values.number = Number(values.number); values.seats = Number(values.seats); values.is_active = values.is_active === 'true';
+        path = '/api/staff/admin/tables' + (editingTable ? '/' + editingTable : '');
+        if (!editingTable) { method = 'POST'; delete values.is_active; }
+        else delete values.number;
+        success = 'Table saved.';
+      }
+      const button = form.querySelector('[type=submit]');
+      button.disabled = true;
+      try {
+        await staffApi(path, { method, body: JSON.stringify(values) });
+        await loadAdmin();
+        if (form.id === 'categoryForm') editCategory(null);
+        if (form.id === 'itemForm') editItem(null);
+        if (form.id === 'tableForm') { editTable(null); await refreshOrders(); }
+        showToast(success);
+      } catch (error) { showToast(error.message); }
+      finally { button.disabled = false; }
     }
 
     const statusLabel = { new: 'New order', awaiting: 'Payment needed', preparing: 'Preparing', ready: 'Ready to serve', served: 'Served' };
@@ -825,6 +1008,7 @@
     function renderView() {
       document.getElementById('ordersView').classList.toggle('active', state.view === 'orders');
       document.getElementById('tablesView').classList.toggle('active', state.view === 'tables');
+      document.getElementById('adminView').classList.toggle('active', state.view === 'admin');
       document.querySelectorAll('[data-view]').forEach((button) => {
         const active = button.dataset.view === state.view;
         button.classList.toggle('active', active);
@@ -921,7 +1105,13 @@
     }
     document.addEventListener('click', (event) => {
       const viewButton = event.target.closest('[data-view]');
-      if (viewButton) { state.view = viewButton.dataset.view; render(); return; }
+      if (viewButton) { state.view = viewButton.dataset.view; render(); if (state.view === 'admin') loadAdmin(); return; }
+      const categoryButton = event.target.closest('[data-admin-category]');
+      if (categoryButton) { editCategory(categoryButton.dataset.adminCategory); return; }
+      const itemButton = event.target.closest('[data-admin-item]');
+      if (itemButton) { editItem(itemButton.dataset.adminItem); return; }
+      const adminTableButton = event.target.closest('[data-admin-table]');
+      if (adminTableButton) { editTable(Number(adminTableButton.dataset.adminTable)); return; }
       const tab = event.target.closest('[data-filter]');
       if (tab) { state.filter = tab.dataset.filter; render(); return; }
       const row = event.target.closest('[data-order-id]');
@@ -955,19 +1145,31 @@
           .catch(() => showToast('Could not copy the link.'));
       } else if (action.dataset.action === 'toast') {
         showToast(action.dataset.message || 'Action completed.');
+      } else if (action.dataset.action === 'new-category') {
+        editCategory(null);
+      } else if (action.dataset.action === 'new-item') {
+        editItem(null);
+      } else if (action.dataset.action === 'new-table') {
+        editTable(null);
       }
     });
+    ['restaurantForm', 'categoryForm', 'itemForm', 'tableForm'].forEach(id => document.getElementById(id).addEventListener('submit', event => {
+      event.preventDefault();
+      saveAdminForm(event.currentTarget);
+    }));
     document.getElementById('orderSearch').addEventListener('input', (event) => { state.query = event.target.value; renderOrders(); });
     document.getElementById('staffAccessForm').addEventListener('submit', event => {
       event.preventDefault();
       setStaffKey(document.getElementById('staffAccessKey').value.trim());
       document.getElementById('staffAccessKey').value = '';
       refreshOrders();
+      if (state.view === 'admin') loadAdmin();
     });
     document.getElementById('todayLabel').textContent = new Intl.DateTimeFormat('en-PH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Manila' }).format(new Date());
     registerWebMCP();
     render();
     if (getStaffKey()) refreshOrders();
+    fetch((import.meta.env.VITE_API_BASE_URL || '') + '/api/restaurant').then(response => response.ok ? response.json() : null).then(updateRestaurantDisplay).catch(() => {});
     window.setInterval(refreshOrders, 5000);
   </script>
 </body>

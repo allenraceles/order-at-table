@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 import uuid
@@ -21,6 +22,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -46,6 +48,46 @@ class CheckoutInput(BaseModel):
 
 class OrderStatusInput(BaseModel):
     status: Literal["preparing", "ready", "complete"]
+
+
+class RestaurantSettingsInput(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    location: str = Field(min_length=1, max_length=120)
+    address: str = Field(max_length=240)
+    phone: str = Field(max_length=50)
+    hours: str = Field(min_length=1, max_length=100)
+    header: str = Field(min_length=1, max_length=160)
+    subheader: str = Field(min_length=1, max_length=500)
+    brand_mark: str = Field(min_length=1, max_length=3)
+    accent_color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class CategoryInput(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    display_order: int = Field(ge=0, le=10000)
+    is_active: bool = True
+
+
+class MenuItemInput(BaseModel):
+    category_id: str
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(max_length=500)
+    price: int = Field(ge=0, le=1000000)
+    image_url: str = Field(max_length=1000)
+    tag: str | None = Field(default=None, max_length=60)
+    options: list[str] = Field(default_factory=list, max_length=20)
+    display_order: int = Field(ge=0, le=10000)
+    is_available: bool = True
+
+
+class TableInput(BaseModel):
+    number: int = Field(ge=1, le=9999)
+    seats: int = Field(ge=1, le=100)
+
+
+class TableUpdateInput(BaseModel):
+    seats: int = Field(ge=1, le=100)
+    is_active: bool
 
 
 def require_staff(x_staff_key: str | None = Header(default=None)) -> None:
@@ -129,7 +171,7 @@ allowed_origins.extend(origin.strip() for origin in os.environ.get("ORDER_ALLOWE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["*"],
 )
 
@@ -227,6 +269,160 @@ def get_menu():
     return {"categories": ["All", *(category["label"] for category in categories)], "menu": sections}
 
 
+def read_restaurant(connection: psycopg.Connection) -> dict:
+    return connection.execute(
+        """SELECT name, location, address, phone, hours, header, subheader, brand_mark, accent_color
+           FROM order_at_table.restaurant_settings WHERE id = 1"""
+    ).fetchone()
+
+
+@app.get("/api/restaurant")
+def get_restaurant():
+    with database() as connection:
+        return read_restaurant(connection)
+
+
+@app.get("/api/staff/admin/restaurant", dependencies=[Depends(require_staff)])
+def get_admin_restaurant():
+    return get_restaurant()
+
+
+@app.put("/api/staff/admin/restaurant", dependencies=[Depends(require_staff)])
+def update_restaurant(payload: RestaurantSettingsInput):
+    with database() as connection:
+        return connection.execute(
+            """UPDATE order_at_table.restaurant_settings SET
+               name=%s, location=%s, address=%s, phone=%s, hours=%s, header=%s,
+               subheader=%s, brand_mark=%s, accent_color=%s WHERE id=1
+               RETURNING name, location, address, phone, hours, header, subheader, brand_mark, accent_color""",
+            (payload.name.strip(), payload.location.strip(), payload.address.strip(), payload.phone.strip(),
+             payload.hours.strip(), payload.header.strip(), payload.subheader.strip(), payload.brand_mark.strip(),
+             payload.accent_color),
+        ).fetchone()
+
+
+@app.get("/api/staff/admin/menu", dependencies=[Depends(require_staff)])
+def get_admin_menu():
+    with database() as connection:
+        categories = connection.execute(
+            """SELECT id, label, display_order, is_active FROM public.order_at_table_menu_categories
+               ORDER BY display_order, id"""
+        ).fetchall()
+        items = connection.execute(
+            """SELECT id, category_id, name, description, price, image_url, tag, options,
+                      display_order, is_available FROM public.order_at_table_menu_items
+               ORDER BY display_order, id"""
+        ).fetchall()
+    return {"categories": categories, "items": items}
+
+
+@app.post("/api/staff/admin/categories", dependencies=[Depends(require_staff)], status_code=201)
+def create_category(payload: CategoryInput):
+    with database() as connection:
+        return connection.execute(
+            """INSERT INTO public.order_at_table_menu_categories (id, label, display_order, is_active)
+               VALUES (%s, %s, %s, %s) RETURNING id, label, display_order, is_active""",
+            (f"category_{uuid.uuid4().hex[:12]}", payload.label.strip(), payload.display_order, payload.is_active),
+        ).fetchone()
+
+
+@app.put("/api/staff/admin/categories/{category_id}", dependencies=[Depends(require_staff)])
+def update_category(category_id: str, payload: CategoryInput):
+    with database() as connection:
+        row = connection.execute(
+            """UPDATE public.order_at_table_menu_categories SET label=%s, display_order=%s, is_active=%s
+               WHERE id=%s RETURNING id, label, display_order, is_active""",
+            (payload.label.strip(), payload.display_order, payload.is_active, category_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return row
+
+
+def save_menu_item(payload: MenuItemInput, item_id: str | None = None):
+    if any(not option.strip() or len(option) > 100 for option in payload.options):
+        raise HTTPException(status_code=422, detail="Options must be 1–100 characters each")
+    for option in payload.options:
+        if "+₱" in option:
+            match = re.search(r"\+₱(\d+)$", option)
+            if not match or int(match.group(1)) > 1000000:
+                raise HTTPException(status_code=422, detail="Option prices must end with +₱ and a number up to 1000000")
+    if payload.image_url and not (payload.image_url.startswith("https://") or payload.image_url.startswith("http://")):
+        raise HTTPException(status_code=422, detail="Image URL must start with http:// or https://")
+    with database() as connection:
+        if connection.execute("SELECT 1 FROM public.order_at_table_menu_categories WHERE id=%s", (payload.category_id,)).fetchone() is None:
+            raise HTTPException(status_code=422, detail="Category not found")
+        values = (payload.category_id, payload.name.strip(), payload.description.strip(), payload.price,
+                  payload.image_url.strip(), payload.tag.strip() if payload.tag else None,
+                  Jsonb([option.strip() for option in payload.options]), payload.display_order, payload.is_available)
+        if item_id is None:
+            row = connection.execute(
+                """INSERT INTO public.order_at_table_menu_items
+                   (id, category_id, name, description, price, image_url, tag, options, display_order, is_available)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id, category_id, name, description, price, image_url, tag, options, display_order, is_available""",
+                (f"item_{uuid.uuid4().hex[:12]}", *values),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """UPDATE public.order_at_table_menu_items SET category_id=%s, name=%s, description=%s,
+                   price=%s, image_url=%s, tag=%s, options=%s, display_order=%s, is_available=%s WHERE id=%s
+                   RETURNING id, category_id, name, description, price, image_url, tag, options, display_order, is_available""",
+                (*values, item_id),
+            ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    return row
+
+
+@app.post("/api/staff/admin/items", dependencies=[Depends(require_staff)], status_code=201)
+def create_menu_item(payload: MenuItemInput):
+    return save_menu_item(payload)
+
+
+@app.put("/api/staff/admin/items/{item_id}", dependencies=[Depends(require_staff)])
+def update_menu_item(item_id: str, payload: MenuItemInput):
+    return save_menu_item(payload, item_id)
+
+
+@app.post("/api/staff/admin/tables", dependencies=[Depends(require_staff)], status_code=201)
+def create_table(payload: TableInput):
+    with database() as connection:
+        existing = connection.execute("SELECT number, is_active FROM order_at_table.dining_tables WHERE number=%s", (payload.number,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Table number already exists. Reactivate it instead.")
+        row = connection.execute(
+            """INSERT INTO order_at_table.dining_tables (number, seats) VALUES (%s,%s)
+               RETURNING number, seats, is_active""", (payload.number, payload.seats),
+        ).fetchone()
+    return row
+
+
+@app.get("/api/staff/admin/tables", dependencies=[Depends(require_staff)])
+def get_admin_tables():
+    with database() as connection:
+        rows = connection.execute(
+            """SELECT number, seats, is_active, current_service_id FROM order_at_table.dining_tables
+               ORDER BY number"""
+        ).fetchall()
+    return {"tables": [{**row, "current_service_id": str(row["current_service_id"]) if row["current_service_id"] else None}
+                       for row in rows]}
+
+
+@app.put("/api/staff/admin/tables/{number}", dependencies=[Depends(require_staff)])
+def update_table(number: int, payload: TableUpdateInput):
+    with database() as connection:
+        row = connection.execute(
+            """UPDATE order_at_table.dining_tables SET seats=%s, is_active=%s
+               WHERE number=%s AND (%s OR current_service_id IS NULL)
+               RETURNING number, seats, is_active""",
+            (payload.seats, payload.is_active, number, payload.is_active),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="Table not found or currently in service")
+    return row
+
+
 def serialize_table(table: dict) -> dict:
     return {
         "number": table["number"],
@@ -240,7 +436,7 @@ def serialize_table(table: dict) -> dict:
 def get_table_service(number: int):
     with database() as connection:
         table = connection.execute(
-            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables WHERE number = %s",
+            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables WHERE number = %s AND is_active = true",
             (number,),
         ).fetchone()
     if table is None:
@@ -252,7 +448,7 @@ def get_table_service(number: int):
 def create_order(payload: OrderInput):
     with database() as connection:
         table = connection.execute(
-            "SELECT current_service_id FROM order_at_table.dining_tables WHERE number = %s FOR UPDATE",
+            "SELECT current_service_id FROM order_at_table.dining_tables WHERE number = %s AND is_active = true FOR UPDATE",
             (payload.table_number,),
         ).fetchone()
         if table is None:
@@ -262,8 +458,9 @@ def create_order(payload: OrderInput):
         lines = []
         for line in payload.items:
             item = connection.execute(
-                """SELECT id, name, price, options FROM public.order_at_table_menu_items
-                   WHERE id = %s AND is_available = true""",
+                """SELECT i.id, i.name, i.price, i.options FROM public.order_at_table_menu_items i
+                   JOIN public.order_at_table_menu_categories c ON c.id = i.category_id
+                   WHERE i.id = %s AND i.is_available = true AND c.is_active = true""",
                 (line.item_id,),
             ).fetchone()
             if item is None:
@@ -405,7 +602,7 @@ def get_staff_orders():
 def get_staff_tables():
     with database() as connection:
         rows = connection.execute(
-            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables ORDER BY number"
+            "SELECT number, seats, current_service_id, service_started_at FROM order_at_table.dining_tables WHERE is_active = true ORDER BY number"
         ).fetchall()
     return {"tables": [serialize_table(row) for row in rows]}
 
@@ -416,7 +613,7 @@ def start_table_service(number: int):
         table = connection.execute(
             """UPDATE order_at_table.dining_tables
                SET current_service_id = %s, service_started_at = now()
-               WHERE number = %s AND current_service_id IS NULL
+               WHERE number = %s AND is_active = true AND current_service_id IS NULL
                RETURNING number, seats, current_service_id, service_started_at""",
             (uuid.uuid4(), number),
         ).fetchone()

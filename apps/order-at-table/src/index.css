@@ -77,6 +77,8 @@
       }
       .brand-name { font-size: .9rem; letter-spacing: .18em; font-weight: 850; line-height: 1; }
       .brand-location { color: var(--muted); font-size: .78rem; margin-top: 5px; white-space: nowrap; }
+      .restaurant-contact { display:flex; flex-direction:column; gap:4px; margin:13px 6px; color:var(--muted); font-size:.8rem; }
+      .restaurant-contact a { color:var(--ink); }
       .header-actions { display: flex; align-items: center; gap: 10px; }
       .table-chip, .status-chip {
         border: 1px solid var(--line);

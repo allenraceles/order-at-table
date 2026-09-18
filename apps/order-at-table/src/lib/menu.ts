@@ -30,7 +30,7 @@ export async function loadMenu(): Promise<MenuData> {
   for (const item of items) {
     byCategory.get(item.category_id)?.items.push({
       id: item.id, name: item.name, desc: item.description, price: item.price,
-      image: item.image_url, tag: item.tag || undefined, options: item.options,
+      image: item.image_url || 'https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg', tag: item.tag || undefined, options: item.options,
     })
   }
   return { categories: ['All', ...categories.map(category => category.label)], menu: [...byCategory.values()] }

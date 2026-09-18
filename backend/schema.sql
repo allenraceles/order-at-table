@@ -52,9 +52,31 @@ CREATE TABLE IF NOT EXISTS order_at_table.orders (
 CREATE TABLE IF NOT EXISTS order_at_table.dining_tables (
   number integer PRIMARY KEY CHECK (number > 0),
   seats integer NOT NULL CHECK (seats > 0),
+  is_active boolean NOT NULL DEFAULT true,
   current_service_id uuid,
   service_started_at timestamptz
 );
+ALTER TABLE order_at_table.dining_tables ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
+CREATE TABLE IF NOT EXISTS order_at_table.restaurant_settings (
+  id integer PRIMARY KEY CHECK (id = 1),
+  name text NOT NULL,
+  location text NOT NULL,
+  address text NOT NULL DEFAULT '',
+  phone text NOT NULL DEFAULT '',
+  hours text NOT NULL,
+  header text NOT NULL,
+  subheader text NOT NULL,
+  brand_mark text NOT NULL,
+  accent_color text NOT NULL CHECK (accent_color ~ '^#[0-9A-Fa-f]{6}$')
+);
+INSERT INTO order_at_table.restaurant_settings
+  (id, name, location, address, phone, hours, header, subheader, brand_mark, accent_color)
+VALUES (1, 'Mesa & Co.', 'Greenbelt 5 · Makati', '', '', 'Open until 10:00 PM',
+        'Take your time. We’ll bring it.',
+        'Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.',
+        'M', '#dce85d')
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO order_at_table.dining_tables (number, seats) VALUES
   (2, 2), (4, 4), (6, 4), (8, 2), (9, 4), (11, 2),
@@ -99,6 +121,7 @@ ALTER TABLE public.order_at_table_menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_at_table.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_at_table.order_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_at_table.dining_tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_at_table.restaurant_settings ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA order_at_table FROM anon, authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA order_at_table FROM anon, authenticated;

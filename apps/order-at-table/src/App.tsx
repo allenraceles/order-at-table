@@ -9,6 +9,7 @@ type OrderStatus = 'awaiting_payment' | 'new' | 'preparing' | 'ready' | 'complet
 type Order = { number: string; table_number: number; table_service_id: string | null; payment_method: 'counter' | 'paymongo'; status: OrderStatus; total: number; items: { name: string; option: string | null; quantity: number; unit_price: number }[] }
 type TableService = { number: number; seats: number; current_service_id: string | null; service_started_at: string | null }
 type Panel = 'item' | 'cart' | 'checkout' | 'success' | 'status' | null
+type Restaurant = { name: string; location: string; address: string; phone: string; hours: string; header: string; subheader: string; brand_mark: string; accent_color: string }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const tableParameter = new URLSearchParams(window.location.search).get('table')
@@ -16,6 +17,7 @@ const parsedTable = Number(tableParameter || '18')
 const tableNumber = Number.isSafeInteger(parsedTable) && parsedTable > 0 ? parsedTable : 18
 const orderStorageKey = `mesa-order-table-${tableNumber}`
 const defaultImage = 'https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg'
+const defaultRestaurant: Restaurant = { name: 'Mesa & Co.', location: 'Greenbelt 5 · Makati', address: '', phone: '', hours: 'Open until 10:00 PM', header: 'Take your time. We’ll bring it.', subheader: 'Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.', brand_mark: 'M', accent_color: '#dce85d' }
 const money = (amount: number) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(amount)
 const orderMessages: Record<OrderStatus, { title: string; detail: string }> = {
   awaiting_payment: { title: 'Waiting for counter payment', detail: 'Show your order number at the counter so our team can confirm payment.' },
@@ -48,6 +50,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function App() {
   const [menuData, setMenuData] = useState<MenuData | null>(null)
+  const [restaurant, setRestaurant] = useState<Restaurant>(defaultRestaurant)
   const [menuError, setMenuError] = useState('')
   const [apiReady, setApiReady] = useState<boolean | null>(null)
   const [category, setCategory] = useState('All')
@@ -67,8 +70,11 @@ export default function App() {
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
 
+  useEffect(() => { document.documentElement.style.setProperty('--lime', restaurant.accent_color) }, [restaurant.accent_color])
+
   useEffect(() => {
     loadMenu().then(setMenuData).catch(cause => setMenuError(cause instanceof Error ? cause.message : 'Could not load menu'))
+    api<Restaurant>('/api/restaurant').then(setRestaurant).catch(() => {})
     api<{ ok: boolean }>('/api/health').then(() => setApiReady(true)).catch(() => setApiReady(false))
     api<{ paymongo_enabled: boolean }>('/api/payments/config').then(config => { setPaymongoEnabled(config.paymongo_enabled); if (config.paymongo_enabled) setPaymentMethod('paymongo') }).catch(() => {})
     sessionStorage.removeItem('mesa-order-number')
@@ -194,13 +200,13 @@ export default function App() {
   return <>
     <div className="top-strip"><strong>Kitchen open</strong> · Estimated preparation time 15–20 min</div>
     <header className="app-header"><div className="header-inner">
-      <div className="brand-lockup" aria-label="Mesa and Co. Greenbelt 5"><div className="brand-mark" aria-hidden="true">M</div><div><div className="brand-name">MESA &amp; CO.</div><div className="brand-location">Greenbelt 5 · Makati</div></div></div>
+      <div className="brand-lockup" aria-label={`${restaurant.name} ${restaurant.location}`}><div className="brand-mark" aria-hidden="true">{restaurant.brand_mark}</div><div><div className="brand-name">{restaurant.name}</div><div className="brand-location">{restaurant.location}</div></div></div>
       <div className="header-actions"><div className="table-chip"><span>Table</span>{tableNumber}</div><Button variant="outline" size="icon" className="icon-button" onClick={openOrder} aria-label="Open your order"><ShoppingBag size={18} /></Button></div>
     </div></header>
 
     <main className="page">
       {order && <div className="order-status-card"><button type="button" onClick={() => setPanel('status')}><div className="status-top"><strong>Order #{order.number}: {orderMessage?.title}</strong><span>View status →</span></div><div className="status-card-copy">{orderMessage?.detail}</div></button></div>}
-      <section className="context-row" aria-labelledby="page-title"><div><div className="eyebrow">Dine-in menu</div><h1 id="page-title">Take your time.<br /><em>We’ll bring it.</em></h1><p className="context-copy">Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.</p></div><div className="open-badge"><span className="open-dot" aria-hidden="true" /> Open until 10:00 PM</div></section>
+      <section className="context-row" aria-labelledby="page-title"><div><div className="eyebrow">Dine-in menu</div><h1 id="page-title">{restaurant.header}</h1><p className="context-copy">{restaurant.subheader}</p></div><div className="open-badge"><span className="open-dot" aria-hidden="true" /> {restaurant.hours}</div></section>
       <div className="notice" role="status"><div className="notice-icon" aria-hidden="true">✦</div><div><strong>Table {tableNumber}</strong><span>{tableError || (tableService?.current_service_id ? 'Ready to order. We’ll bring it to this table.' : 'Ask our team to mark this table in service before ordering.')}</span></div></div>
       {/* {apiReady === false && <div className="api-notice" role="status">Menu preview is available. Start the FastAPI service to place an order.</div>} */}
 
@@ -210,7 +216,7 @@ export default function App() {
         {menuError ? <div className="menu-empty" role="alert"><UtensilsCrossed size={28} /><p>Could not load the menu. Please try again.</p><Button variant="outline" onClick={() => window.location.reload()}>Retry</Button></div> : !menuData ? <div className="menu-empty" role="status"><p>Loading menu…</p></div> : filtered.length ? filtered.map(section => <section className="menu-section" key={section.category} id={section.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}><div className="section-heading"><h2>{section.category}</h2><span>{section.items.length} {section.items.length === 1 ? 'item' : 'items'}</span></div><div className="menu-grid">{section.items.map(item => <article className="menu-card" key={item.id}><div className="menu-card-image"><img src={item.image} alt={item.name} loading="lazy" onError={useDefaultImage} />{item.tag && <span className="card-tag">{item.tag}</span>}</div><div className="menu-card-body"><div className="menu-card-title"><h3>{item.name}</h3><span className="menu-card-price">{money(item.price)}</span></div><p>{item.desc}</p><Button className="add-button" onClick={() => openItem(item)}><span>＋</span> Add to order</Button></div></article>)}</div></section>) : <div className="menu-empty"><UtensilsCrossed size={28} /><p>No menu items match that search.</p></div>}
       </section><aside className="order-rail" aria-label="Your order"><div className="order-card">
         {order ? <><div className="order-card-head"><div><h2>Order #{order.number}</h2><span>{orderMessage?.title}</span></div><span className="status-chip">{order.status === 'awaiting_payment' ? 'Pending' : 'Live'}</span></div><div className="order-items"><div className="order-line"><div className="order-qty">✓</div><div><strong>{orderMessage?.title}</strong><small>{orderMessage?.detail}</small></div></div></div><Button className="checkout-button" onClick={() => setPanel('status')}>View order status</Button></> : <><div className="order-card-head"><div><h2>Your order</h2><span>{count ? `${count} ${count === 1 ? 'item' : 'items'} · ` : ''}Table {tableNumber}</span></div><ShoppingBag size={22} /></div>{count ? <><div className="order-items">{cart.map(line => <div className="order-line" key={line.key}><div className="order-qty">{line.quantity}</div><div><strong>{line.item.name}</strong><small>{line.option || 'Standard preparation'}</small></div><span className="order-line-price">{money(line.unitPrice * line.quantity)}</span></div>)}</div><div className="order-totals"><div className="total-line"><span>Subtotal</span><strong>{money(total)}</strong></div><div className="total-line"><span>VAT included</span><span>Included</span></div><div className="total-line grand"><span>Total</span><strong>{money(total)}</strong></div></div><Button className="checkout-button" onClick={openOrder}>Review and pay <span>→</span></Button></> : <div className="order-empty"><div><div className="plate-icon"><UtensilsCrossed size={25} /></div><p>Your order is empty.<br />Add something delicious to begin.</p></div></div>}</>}
-      </div><div className="rail-help">Need help? <button type="button" onClick={() => setToast('A team member will be with you shortly')}>Ask our team</button></div></aside></div>
+      </div><div className="rail-help">Need help? <button type="button" onClick={() => setToast('A team member will be with you shortly')}>Ask our team</button></div>{(restaurant.address || restaurant.phone) && <div className="restaurant-contact">{restaurant.address && <span>{restaurant.address}</span>}{restaurant.phone && <a href={`tel:${restaurant.phone}`}>{restaurant.phone}</a>}</div>}</aside></div>
     </main>
 
     {(count > 0 || order) && <div className="mobile-cart-bar"><button className="mobile-cart-button" type="button" onClick={openOrder}><span>{order ? `Order #${order.number}` : `${count} ${count === 1 ? 'item' : 'items'} in your order`}</span><span>{order ? 'View status →' : `${money(total)} →`}</span></button></div>}
