@@ -540,6 +540,11 @@
     .admin-form-box { border:1px solid var(--line); border-radius:12px; padding:18px; background:#fff; }
     .admin-form-box h3 { margin:0 0 14px; font-size:17px; }
     .admin-empty { padding:18px; color:var(--muted); border:1px dashed var(--line-strong); border-radius:10px; }
+    .service-toggle { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; padding:12px 14px; border:1px solid var(--line-strong); border-radius:11px; background:#fff; color:var(--ink); font-weight:800; text-align:left; }
+    .service-toggle-track { width:46px; height:26px; flex:0 0 auto; padding:3px; border-radius:999px; background:#aab6af; transition:background .2s ease; }
+    .service-toggle-knob { display:block; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 2px 5px rgba(0,0,0,.18); transition:transform .2s ease; }
+    .service-toggle.on .service-toggle-track { background:var(--green); }
+    .service-toggle.on .service-toggle-knob { transform:translateX(20px); }
     @media (max-width: 930px) { .admin-split { grid-template-columns:1fr; } }
     @media (max-width: 680px) { .admin-section { padding:17px; } .admin-grid { grid-template-columns:1fr; } .admin-grid .wide { grid-column:auto; } .mobile-nav { grid-template-columns:repeat(3,1fr); } }
   </style>
@@ -1000,8 +1005,8 @@
             (table.serviceId
               ? (order ? '<button type="button" class="primary-button" data-action="open-order">Open order #' + order.id + ' <span aria-hidden="true">→</span></button>' : '') +
                 '<button type="button" class="outline-button" data-action="copy-table-link">Copy Table ' + table.id + ' ordering link</button>' +
-                '<button type="button" class="outline-button" data-action="end-service" ' + (table.hasPending ? 'disabled title="Finish all orders first"' : '') + '>End table service</button>'
-              : '<button type="button" class="primary-button" data-action="start-service">Mark table in service</button>') +
+                '<button type="button" class="service-toggle on" data-action="toggle-service" role="switch" aria-checked="true"><span>In service <small style="display:block;color:var(--muted);font-weight:500">Guests can place additional orders</small></span><span class="service-toggle-track"><span class="service-toggle-knob"></span></span></button>'
+              : '<button type="button" class="service-toggle" data-action="toggle-service" role="switch" aria-checked="false"><span>Out of service <small style="display:block;color:var(--muted);font-weight:500">Turn on to allow ordering</small></span><span class="service-toggle-track"><span class="service-toggle-knob"></span></span></button>') +
           '</div>' +
         '</div>';
     }
@@ -1134,10 +1139,9 @@
         state.filter = 'awaiting'; render();
       } else if (action.dataset.action === 'refresh') {
         refreshOrders();
-      } else if (action.dataset.action === 'start-service') {
-        changeTableService('start');
-      } else if (action.dataset.action === 'end-service') {
-        changeTableService('end');
+      } else if (action.dataset.action === 'toggle-service') {
+        const table = getTable(state.selectedTable);
+        if (table) changeTableService(table.serviceId ? 'end' : 'start');
       } else if (action.dataset.action === 'copy-table-link') {
         const table = getTable(state.selectedTable);
         if (table) navigator.clipboard.writeText(orderingBase + '?table=' + table.id)

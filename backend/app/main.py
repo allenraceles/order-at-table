@@ -635,13 +635,6 @@ def end_table_service(number: int):
             raise HTTPException(status_code=404, detail="Unknown table number")
         if table["current_service_id"] is None:
             raise HTTPException(status_code=409, detail="Table is not in service")
-        pending = connection.execute(
-            """SELECT 1 FROM order_at_table.orders
-               WHERE table_service_id = %s AND status NOT IN ('complete', 'cancelled') LIMIT 1""",
-            (table["current_service_id"],),
-        ).fetchone()
-        if pending:
-            raise HTTPException(status_code=409, detail="Finish all orders before ending table service")
         updated = connection.execute(
             """UPDATE order_at_table.dining_tables SET current_service_id = NULL, service_started_at = NULL
                WHERE number = %s RETURNING number, seats, current_service_id, service_started_at""",

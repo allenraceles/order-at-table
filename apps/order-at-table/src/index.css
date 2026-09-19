@@ -206,6 +206,7 @@
       .total-line.grand { color: white; font-weight: 850; font-size: 1rem; padding-top: 12px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,.16); }
       .checkout-button { width: 100%; margin-top: 18px; border: 0; border-radius: 12px; background: var(--lime); color: var(--ink); padding: 13px; font-weight: 900; }
       .checkout-button:hover { background: #e6f06f; }
+      .additional-order-button { width: 100%; margin-top: 10px; border-color: var(--line-strong); }
       .rail-help { margin-top: 14px; text-align: center; color: var(--muted); font-size: .76rem; }
       .rail-help button { color: var(--ink); border: 0; background: transparent; text-decoration: underline; padding: 0; font-weight: 750; }
 
