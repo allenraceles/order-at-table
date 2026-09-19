@@ -188,7 +188,7 @@ def create_paymongo_session(number: str, table_number: int, lines: list[dict]) -
     parsed = urlsplit(customer_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path:
         raise HTTPException(status_code=503, detail="Customer return URL is not configured")
-    return_url = f"{customer_url}/?{urlencode({'table': table_number, 'payment': 'return'})}"
+    return_url = f"{customer_url}/?{urlencode({'table': table_number, 'payment': 'return', 'order': number})}"
     attributes = {
         "line_items": [{"name": line["name"] + (f" ({line['option']})" if line["option"] else ""),
                         "amount": line["unit_price"] * 100, "currency": "PHP", "quantity": line["quantity"]}

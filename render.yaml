@@ -16,6 +16,6 @@ services:
       - key: PAYMONGO_WEBHOOK_SECRET
         sync: false
       - key: ORDER_CUSTOMER_URL
-        value: https://mesa-customer-ordering.raseresu.chatgpt.site
+        value: http://localhost:5173
       - key: ORDER_ALLOWED_ORIGINS
         value: https://mesa-customer-ordering.raseresu.chatgpt.site,https://mesa-foh-dashboard.raseresu.chatgpt.site,https://mesa-kitchen-view.raseresu.chatgpt.site

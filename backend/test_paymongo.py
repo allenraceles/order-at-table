@@ -35,6 +35,8 @@ class PayMongoTests(unittest.TestCase):
         self.assertEqual(attributes["line_items"][0]["quantity"], 2)
         self.assertEqual(attributes["payment_method_types"], ["gcash", "qrph"])
         self.assertEqual(attributes["reference_number"], "1234")
+        self.assertEqual(attributes["success_url"], "http://localhost:5173/?table=18&payment=return&order=1234")
+        self.assertEqual(attributes["cancel_url"], attributes["success_url"])
 
     def test_signature_rejects_tampering_and_replay(self):
         body = b'{"data":{"type":"checkout_session.payment.paid"}}'

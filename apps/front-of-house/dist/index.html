@@ -540,15 +540,19 @@
     .admin-form-box { border:1px solid var(--line); border-radius:12px; padding:18px; background:#fff; }
     .admin-form-box h3 { margin:0 0 14px; font-size:17px; }
     .admin-empty { padding:18px; color:var(--muted); border:1px dashed var(--line-strong); border-radius:10px; }
-    .service-toggle { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; padding:12px 14px; border:1px solid var(--line-strong); border-radius:11px; background:#fff; color:var(--ink); font-weight:800; text-align:left; }
-    .service-toggle-track { width:46px; height:26px; flex:0 0 auto; padding:3px; border-radius:999px; background:#aab6af; transition:background .2s ease; }
-    .service-toggle-knob { display:block; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 2px 5px rgba(0,0,0,.18); transition:transform .2s ease; }
-    .service-toggle.on .service-toggle-track { background:var(--green); }
-    .service-toggle.on .service-toggle-knob { transform:translateX(20px); }
+    .service-status { display:flex; align-items:center; gap:10px; padding:11px 13px; border:1px solid #bfe0cf; border-radius:10px; background:var(--green-soft); color:var(--ink); }
+    .service-status.available { border-color:var(--line); background:#f5f7f4; }
+    .service-status-dot { width:9px; height:9px; flex:0 0 auto; border-radius:50%; background:var(--green); }
+    .service-status.available .service-status-dot { background:#aab6af; }
+    .service-status strong, .service-status small { display:block; }
+    .service-status strong { font-size:13px; }
+    .service-status small { margin-top:2px; color:var(--muted); font-size:11px; }
+    .end-service-button { border-color:#e4b8b2; color:#963d35; background:#fff8f7; }
+    .end-service-button:hover { border-color:#963d35; }
     @media (max-width: 930px) { .admin-split { grid-template-columns:1fr; } }
     @media (max-width: 680px) { .admin-section { padding:17px; } .admin-grid { grid-template-columns:1fr; } .admin-grid .wide { grid-column:auto; } .mobile-nav { grid-template-columns:repeat(3,1fr); } }
   </style>
-  <script type="module" crossorigin src="/assets/index-yXigt2zx.js"></script>
+  <script type="module" crossorigin src="/assets/index-D37Cix8c.js"></script>
 </head>
 <body>
   <div class="app-shell">
