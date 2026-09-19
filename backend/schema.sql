@@ -69,9 +69,13 @@ CREATE TABLE IF NOT EXISTS order_at_table.restaurant_settings (
   subheader text NOT NULL,
   brand_mark text NOT NULL,
   logo_url text NOT NULL DEFAULT '',
+  kitchen_status text NOT NULL DEFAULT 'Kitchen open',
+  preparation_time text NOT NULL DEFAULT 'Estimated preparation time 15–20 min',
   accent_color text NOT NULL CHECK (accent_color ~ '^#[0-9A-Fa-f]{6}$')
 );
 ALTER TABLE order_at_table.restaurant_settings ADD COLUMN IF NOT EXISTS logo_url text NOT NULL DEFAULT '';
+ALTER TABLE order_at_table.restaurant_settings ADD COLUMN IF NOT EXISTS kitchen_status text NOT NULL DEFAULT 'Kitchen open';
+ALTER TABLE order_at_table.restaurant_settings ADD COLUMN IF NOT EXISTS preparation_time text NOT NULL DEFAULT 'Estimated preparation time 15–20 min';
 INSERT INTO order_at_table.restaurant_settings
   (id, name, location, address, phone, hours, header, subheader, brand_mark, accent_color)
 VALUES (1, 'Mesa & Co.', 'Greenbelt 5 · Makati', '', '', 'Open until 10:00 PM',

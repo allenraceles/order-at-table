@@ -67,6 +67,8 @@ class RestaurantSettingsInput(BaseModel):
     subheader: str = Field(min_length=1, max_length=500)
     brand_mark: str = Field(min_length=1, max_length=3)
     logo_url: str = Field(default="", max_length=1000)
+    kitchen_status: str = Field(default="Kitchen open", min_length=1, max_length=80)
+    preparation_time: str = Field(default="Estimated preparation time 15–20 min", min_length=1, max_length=120)
     accent_color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -324,7 +326,8 @@ def get_menu():
 
 def read_restaurant(connection: psycopg.Connection) -> dict:
     return connection.execute(
-        """SELECT name, location, address, phone, hours, header, subheader, brand_mark, logo_url, accent_color
+        """SELECT name, location, address, phone, hours, header, subheader, brand_mark, logo_url,
+                  kitchen_status, preparation_time, accent_color
            FROM order_at_table.restaurant_settings WHERE id = 1"""
     ).fetchone()
 
@@ -351,11 +354,14 @@ def update_restaurant(payload: RestaurantSettingsInput):
         row = connection.execute(
             """UPDATE order_at_table.restaurant_settings SET
                name=%s, location=%s, address=%s, phone=%s, hours=%s, header=%s,
-               subheader=%s, brand_mark=%s, logo_url=%s, accent_color=%s WHERE id=1
-               RETURNING name, location, address, phone, hours, header, subheader, brand_mark, logo_url, accent_color""",
+               subheader=%s, brand_mark=%s, logo_url=%s, kitchen_status=%s, preparation_time=%s,
+               accent_color=%s WHERE id=1
+               RETURNING name, location, address, phone, hours, header, subheader, brand_mark, logo_url,
+                         kitchen_status, preparation_time, accent_color""",
             (payload.name.strip(), payload.location.strip(), payload.address.strip(), payload.phone.strip(),
              payload.hours.strip(), payload.header.strip(), payload.subheader.strip(), payload.brand_mark.strip(),
-             payload.logo_url.strip(), payload.accent_color),
+             payload.logo_url.strip(), payload.kitchen_status.strip(), payload.preparation_time.strip(),
+             payload.accent_color),
         ).fetchone()
     if previous and previous["logo_url"] != row["logo_url"]:
         delete_managed_image(previous["logo_url"])

@@ -369,7 +369,7 @@
     </div>
     <div class="service-state">
       <span class="state-dot"></span>
-      <div><strong>Kitchen open</strong><span>Dinner service · 6:00–11:00 PM</span></div>
+      <div><strong id="kitchenStatus">Kitchen open</strong><span id="kitchenPreparationTime">Estimated preparation time 15–20 min</span></div>
     </div>
     <div class="top-actions">
       <span class="top-time" id="topTime"></span>
@@ -620,6 +620,8 @@
       const mark = document.getElementById('kitchenBrandMark');
       document.querySelector('.brand strong').textContent = restaurant.name;
       document.querySelector('.eyebrow').textContent = restaurant.location;
+      document.getElementById('kitchenStatus').textContent = restaurant.kitchen_status;
+      document.getElementById('kitchenPreparationTime').textContent = restaurant.preparation_time;
       mark.replaceChildren();
       if (restaurant.logo_url) {
         const image = document.createElement('img'); image.src = restaurant.logo_url; image.alt = '';
