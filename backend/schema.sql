@@ -68,8 +68,10 @@ CREATE TABLE IF NOT EXISTS order_at_table.restaurant_settings (
   header text NOT NULL,
   subheader text NOT NULL,
   brand_mark text NOT NULL,
+  logo_url text NOT NULL DEFAULT '',
   accent_color text NOT NULL CHECK (accent_color ~ '^#[0-9A-Fa-f]{6}$')
 );
+ALTER TABLE order_at_table.restaurant_settings ADD COLUMN IF NOT EXISTS logo_url text NOT NULL DEFAULT '';
 INSERT INTO order_at_table.restaurant_settings
   (id, name, location, address, phone, hours, header, subheader, brand_mark, accent_color)
 VALUES (1, 'Mesa & Co.', 'Greenbelt 5 · Makati', '', '', 'Open until 10:00 PM',

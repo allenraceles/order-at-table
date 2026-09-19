@@ -9,6 +9,10 @@ services:
     envVars:
       - key: SUPABASE_DB_URL
         sync: false
+      - key: SUPABASE_URL
+        value: https://ftdzbagcesvujvrbaqdl.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       - key: ORDER_STAFF_KEY
         sync: false
       - key: PAYMONGO_SECRET_KEY

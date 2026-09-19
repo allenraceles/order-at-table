@@ -23,6 +23,14 @@ export async function staffApi(path, init = {}) {
   return body
 }
 
+export function uploadStaffImage(file, kind) {
+  return staffApi('/api/staff/uploads/images?kind=' + encodeURIComponent(kind), {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  })
+}
+
 export function formatTime(value) {
   return new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' }).format(new Date(value))
 }

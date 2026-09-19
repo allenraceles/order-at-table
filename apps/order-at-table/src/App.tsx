@@ -9,7 +9,7 @@ type OrderStatus = 'awaiting_payment' | 'new' | 'preparing' | 'ready' | 'complet
 type Order = { number: string; table_number: number; table_service_id: string | null; payment_method: 'counter' | 'paymongo'; status: OrderStatus; total: number; items: { name: string; option: string | null; quantity: number; unit_price: number }[] }
 type TableService = { number: number; seats: number; current_service_id: string | null; service_started_at: string | null }
 type Panel = 'item' | 'cart' | 'checkout' | 'success' | 'status' | null
-type Restaurant = { name: string; location: string; address: string; phone: string; hours: string; header: string; subheader: string; brand_mark: string; accent_color: string }
+type Restaurant = { name: string; location: string; address: string; phone: string; hours: string; header: string; subheader: string; brand_mark: string; logo_url: string; accent_color: string }
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const tableParameter = new URLSearchParams(window.location.search).get('table')
@@ -17,7 +17,7 @@ const parsedTable = Number(tableParameter || '18')
 const tableNumber = Number.isSafeInteger(parsedTable) && parsedTable > 0 ? parsedTable : 18
 const orderStorageKey = `mesa-order-table-${tableNumber}`
 const defaultImage = 'https://resizer.otstatic.com/v2/photos/huge/1/79194476.jpg'
-const defaultRestaurant: Restaurant = { name: 'Mesa & Co.', location: 'Greenbelt 5 · Makati', address: '', phone: '', hours: 'Open until 10:00 PM', header: 'Take your time. We’ll bring it.', subheader: 'Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.', brand_mark: 'M', accent_color: '#dce85d' }
+const defaultRestaurant: Restaurant = { name: 'Mesa & Co.', location: 'Greenbelt 5 · Makati', address: '', phone: '', hours: 'Open until 10:00 PM', header: 'Take your time. We’ll bring it.', subheader: 'Order from your table whenever you’re ready. Prices already include VAT. Need a special discount or billing request? You can pay at the counter.', brand_mark: 'M', logo_url: '', accent_color: '#dce85d' }
 const money = (amount: number) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(amount)
 const orderMessages: Record<OrderStatus, { title: string; detail: string }> = {
   awaiting_payment: { title: 'Waiting for counter payment', detail: 'Show your order number at the counter so our team can confirm payment.' },
@@ -271,7 +271,7 @@ export default function App() {
   return <>
     <div className="top-strip"><strong>Kitchen open</strong> · Estimated preparation time 15–20 min</div>
     <header className="app-header"><div className="header-inner">
-      <div className="brand-lockup" aria-label={`${restaurant.name} ${restaurant.location}`}><div className="brand-mark" aria-hidden="true">{restaurant.brand_mark}</div><div><div className="brand-name">{restaurant.name}</div><div className="brand-location">{restaurant.location}</div></div></div>
+      <div className="brand-lockup" aria-label={`${restaurant.name} ${restaurant.location}`}><div className="brand-mark" aria-hidden="true">{restaurant.logo_url ? <img src={restaurant.logo_url} alt="" onError={event => { event.currentTarget.parentElement!.textContent = restaurant.brand_mark }} /> : restaurant.brand_mark}</div><div><div className="brand-name">{restaurant.name}</div><div className="brand-location">{restaurant.location}</div></div></div>
       <div className="header-actions"><div className="table-chip"><span>Table</span>{tableNumber}</div><Button variant="outline" size="icon" className="icon-button" onClick={openOrder} aria-label="Open your order"><ShoppingBag size={18} /></Button></div>
     </div></header>
 

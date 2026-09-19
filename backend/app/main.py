@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 
 import psycopg
@@ -27,6 +27,13 @@ from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 RESTAUPRO_PROJECT_REF = "ftdzbagcesvujvrbaqdl"
+MEDIA_BUCKET = "restaurant-media"
+MAX_IMAGE_BYTES = 1024 * 1024
+IMAGE_SIGNATURES = {
+    "image/jpeg": lambda body: body.startswith(b"\xff\xd8\xff"),
+    "image/png": lambda body: body.startswith(b"\x89PNG\r\n\x1a\n"),
+    "image/webp": lambda body: len(body) >= 12 and body.startswith(b"RIFF") and body[8:12] == b"WEBP",
+}
 
 
 class OrderLineInput(BaseModel):
@@ -59,6 +66,7 @@ class RestaurantSettingsInput(BaseModel):
     header: str = Field(min_length=1, max_length=160)
     subheader: str = Field(min_length=1, max_length=500)
     brand_mark: str = Field(min_length=1, max_length=3)
+    logo_url: str = Field(default="", max_length=1000)
     accent_color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -112,6 +120,51 @@ def database():
         return psycopg.connect(url, sslmode="require", prepare_threshold=None, row_factory=dict_row)
     except psycopg.OperationalError:
         raise HTTPException(status_code=503, detail="Supabase database is unavailable") from None
+
+
+def storage_config() -> tuple[str, str]:
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if url != f"https://{RESTAUPRO_PROJECT_REF}.supabase.co" or not key:
+        raise HTTPException(status_code=503, detail="Supabase Storage is not configured")
+    return url, key
+
+
+def storage_request(path: str, *, method: str, body: bytes | None = None, content_type: str | None = None):
+    url, key = storage_config()
+    headers = {"Authorization": f"Bearer {key}", "apikey": key}
+    if content_type:
+        headers["Content-Type"] = content_type
+    try:
+        with urlopen(UrlRequest(f"{url}/storage/v1/{path}", data=body, headers=headers, method=method), timeout=20) as response:
+            payload = response.read()
+            return json.loads(payload) if payload else None
+    except HTTPError as error:
+        detail = "Supabase Storage request failed"
+        try:
+            detail = json.loads(error.read()).get("message", detail)
+        except (ValueError, AttributeError):
+            pass
+        raise HTTPException(status_code=502, detail=detail) from None
+    except URLError:
+        raise HTTPException(status_code=503, detail="Supabase Storage is unavailable") from None
+
+
+def delete_managed_image(image_url: str) -> None:
+    if not image_url:
+        return
+    try:
+        url, _ = storage_config()
+    except HTTPException:
+        return
+    prefix = f"{url}/storage/v1/object/public/{MEDIA_BUCKET}/"
+    if not image_url.startswith(prefix):
+        return
+    object_path = image_url.removeprefix(prefix)
+    try:
+        storage_request(f"object/{MEDIA_BUCKET}/{quote(object_path, safe='/')}", method="DELETE")
+    except HTTPException:
+        pass
 
 
 def read_order(connection: psycopg.Connection, number: str) -> dict | None:
@@ -271,7 +324,7 @@ def get_menu():
 
 def read_restaurant(connection: psycopg.Connection) -> dict:
     return connection.execute(
-        """SELECT name, location, address, phone, hours, header, subheader, brand_mark, accent_color
+        """SELECT name, location, address, phone, hours, header, subheader, brand_mark, logo_url, accent_color
            FROM order_at_table.restaurant_settings WHERE id = 1"""
     ).fetchone()
 
@@ -289,16 +342,48 @@ def get_admin_restaurant():
 
 @app.put("/api/staff/admin/restaurant", dependencies=[Depends(require_staff)])
 def update_restaurant(payload: RestaurantSettingsInput):
+    if payload.logo_url and not payload.logo_url.startswith(("https://", "http://")):
+        raise HTTPException(status_code=422, detail="Logo URL must start with http:// or https://")
     with database() as connection:
-        return connection.execute(
+        previous = connection.execute(
+            "SELECT logo_url FROM order_at_table.restaurant_settings WHERE id=1"
+        ).fetchone()
+        row = connection.execute(
             """UPDATE order_at_table.restaurant_settings SET
                name=%s, location=%s, address=%s, phone=%s, hours=%s, header=%s,
-               subheader=%s, brand_mark=%s, accent_color=%s WHERE id=1
-               RETURNING name, location, address, phone, hours, header, subheader, brand_mark, accent_color""",
+               subheader=%s, brand_mark=%s, logo_url=%s, accent_color=%s WHERE id=1
+               RETURNING name, location, address, phone, hours, header, subheader, brand_mark, logo_url, accent_color""",
             (payload.name.strip(), payload.location.strip(), payload.address.strip(), payload.phone.strip(),
              payload.hours.strip(), payload.header.strip(), payload.subheader.strip(), payload.brand_mark.strip(),
-             payload.accent_color),
+             payload.logo_url.strip(), payload.accent_color),
         ).fetchone()
+    if previous and previous["logo_url"] != row["logo_url"]:
+        delete_managed_image(previous["logo_url"])
+    return row
+
+
+@app.post("/api/staff/uploads/images", dependencies=[Depends(require_staff)], status_code=201)
+async def upload_image(request: Request, kind: Literal["menu", "logo"]):
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    if content_type not in IMAGE_SIGNATURES:
+        raise HTTPException(status_code=415, detail="Only JPEG, PNG, and WebP images are allowed")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_IMAGE_BYTES:
+                raise HTTPException(status_code=413, detail="Image must be 1 MB or smaller")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header") from None
+    body = await request.body()
+    if not body or len(body) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 1 MB or smaller")
+    if not IMAGE_SIGNATURES[content_type](body):
+        raise HTTPException(status_code=415, detail="The uploaded file is not a valid image")
+    extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[content_type]
+    object_path = f"{kind}/{uuid.uuid4().hex}.{extension}"
+    storage_request(f"object/{MEDIA_BUCKET}/{object_path}", method="POST", body=body, content_type=content_type)
+    storage_url, _ = storage_config()
+    return {"url": f"{storage_url}/storage/v1/object/public/{MEDIA_BUCKET}/{object_path}", "bytes": len(body)}
 
 
 @app.get("/api/staff/admin/menu", dependencies=[Depends(require_staff)])
@@ -350,6 +435,9 @@ def save_menu_item(payload: MenuItemInput, item_id: str | None = None):
     if payload.image_url and not (payload.image_url.startswith("https://") or payload.image_url.startswith("http://")):
         raise HTTPException(status_code=422, detail="Image URL must start with http:// or https://")
     with database() as connection:
+        previous = connection.execute(
+            "SELECT image_url FROM public.order_at_table_menu_items WHERE id=%s", (item_id,)
+        ).fetchone() if item_id else None
         if connection.execute("SELECT 1 FROM public.order_at_table_menu_categories WHERE id=%s", (payload.category_id,)).fetchone() is None:
             raise HTTPException(status_code=422, detail="Category not found")
         values = (payload.category_id, payload.name.strip(), payload.description.strip(), payload.price,
@@ -372,6 +460,8 @@ def save_menu_item(payload: MenuItemInput, item_id: str | None = None):
             ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Menu item not found")
+    if previous and previous["image_url"] != row["image_url"]:
+        delete_managed_image(previous["image_url"])
     return row
 
 
